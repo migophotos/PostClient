@@ -5,8 +5,6 @@ from collections import namedtuple
 from sqlite3 import Connection, Cursor
 from typing import Any
 
-from shared.config import Config
-
 
 class QueryException(Exception):
     def __init__(self, message):
@@ -193,24 +191,6 @@ class BaseTable(object, metaclass=ABCMeta):
 
         select_str += f"{where_str}{order_by_str};"
         return select_str, values
-
-    # def build_select_query(self, where: dict[str, Any] or None = None) -> tuple[str, list]:
-    #     values = []
-    #     select_str = f"SELECT * FROM {self.__table_name__}"
-    #     where_str = ""
-    #     if where:
-    #         where_str = " WHERE "
-    #         for key in where:
-    #             # add to query only known parameters
-    #             if key in self.__slots__:
-    #                 where_str += f"{key}=(?)"
-    #                 values.append(where.get(key))
-    #             if len(where) > 1:
-    #                 where_str += " AND "
-    #         where_str = where_str.removesuffix(f" AND ")
-    #         where_str += ";"
-    #     select_str += where_str
-    #     return select_str, values
 
     def build_update_query(self, data, where: dict[str, Any] = None) -> tuple[str, list]:
         #  f"UPDATE users SET role=(?), company=(?), company_number=(?) WHERE userid=(?)"
