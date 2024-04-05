@@ -1,0 +1,16 @@
+[Unit]
+Description="Telegram Post Client V1.00 daemon"
+After=syslog.target
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/path to /post_client
+ExecStart=/path to /post_client/venv/bin/python3.11 /path to /post_client/postclient.py
+RestartSec=10
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+

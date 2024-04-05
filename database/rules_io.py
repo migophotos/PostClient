@@ -1,0 +1,99 @@
+import csv
+import io
+import re
+
+from telethon import TelegramClient
+from telethon.tl.types import Document
+
+from database.orm_sqlite3 import Database
+from shared.config import Config
+
+
+async def cmd_export_rules(db: Database, tg_client: TelegramClient):
+    rules = await db.get_rules_table().get_rules()
+
+    rows = [
+        ["recip_name", "recip_id", "donor_name", "donor_id",
+         "sender_fname", "sender_sname", "sender_uname", "sender_id",
+         "filter", "black_list", "and_list", "or_list", "format", "title", "status",
+         "user_id"]
+    ]
+    for rule in rules:
+        row = [
+            rule.recip_name, rule.recip_id, rule.donor_name, rule.donor_id,
+            rule.sender_fname, rule.sender_sname, rule.sender_uname, rule.sender_id,
+            rule.filter, rule.black_list, rule.and_list, rule.or_list,
+            rule.format, rule.title, rule.status, rule.user_id
+        ]
+        rows.append(row)
+    rows.append([
+        "Insert filter definitions before this row"
+    ])
+    try:
+        rules_csv_file = "./rules.csv"
+        with open(rules_csv_file, "w", encoding="utf8", newline="\r\n") as csv_file:
+            writer = csv.writer(csv_file)
+            writer.writerows(rows)
+
+        await tg_client.send_file('me', rules_csv_file, caption="Rules for Google Sheet")
+
+    except Exception as e:
+        await tg_client.send_message(
+            f"Error: {str(e)}\nContact the author: @MigoPhotos")
+
+
+async def cmd_import_rules(db: Database, tg_client: TelegramClient, document: Document):
+    doc_data = await tg_client.download_file(document)
+    file = io.BytesIO(doc_data)
+    file.seek(0)
+    cat_list_csv = str(file.read(), encoding='utf-8')
+    cat_list = re.findall(r'.*\n', cat_list_csv)
+    cat_list.pop(0)
+    csv_data = csv.reader(cat_list)
+    await db.get_rules_table().delete_all_rules()
+
+    new_rules_count = 0
+    for row in csv_data:
+        if len(row) != 16:
+            continue
+        data = {}
+        recip_name, recip_id, donor_name, donor_id, sender_fname, sender_sname, sender_uname, \
+            sender_id, rule_filter, black_list, and_list, or_list, rule_format, title, status, user_id = row
+
+        # Very Important check: the recipient channel link must not be the same as the donor channel link,
+        # excluding link to special channel, which can only be created by system administrator!
+        if recip_id == donor_id:
+            await tg_client.send_message(
+                'me',
+                f'Skipped rule: {recip_id} == {donor_id} - matching input and output channels are prohibited!')
+            continue
+
+        if recip_id == '' or donor_id == '' or user_id == '':
+            await tg_client.send_message(
+                'me',
+                f'User ID {user_id}, Recipient ID {recip_id} and Donor ID {donor_id} cannot be empty! Skipped')
+            continue
+
+        data["recip_name"] = recip_name
+        data["recip_id"] = int(recip_id)
+        data["donor_name"] = donor_name
+        data["donor_id"] = int(donor_id)
+        data["sender_fname"] = sender_fname
+        data["sender_sname"] = sender_sname
+        data["sender_uname"] = sender_uname
+        data["sender_id"] = int(sender_id)
+        data["filter"] = rule_filter
+        data["black_list"] = black_list
+        data["and_list"] = and_list
+        data["or_list"] = or_list
+        data["format"] = rule_format or 'M'
+        data["title"] = title
+        data["status"] = status
+        data["user_id"] = int(user_id)
+
+        await db.get_rules_table().add_rule(data)
+        new_rules_count += 1
+
+    await tg_client.send_message(Config.app_channel_id, f'{new_rules_count} rules was found and stored in database\n')
+    return True
+

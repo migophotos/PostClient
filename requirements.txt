@@ -1,0 +1,2 @@
+Telethon~=1.34.0
+younotyou~=0.1.1
