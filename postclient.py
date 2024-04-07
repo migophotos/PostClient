@@ -253,16 +253,18 @@ async def normal_handler(event):
                         title_info = ''
                         donor_info = ''
                         sender_info = ''
+                        message_body = ''
 
                         if 't' in format_string:
                             title_info = f'**{rule.title}**\n'
                         if 'd' in format_string:
                             donor_info = f'**{rule.donor_name}** id:{rule.donor_id}\n'
+                            donor_info += f'@t.me/c/{event.message.peer_id.channel_id}/{event.message.id}\n'
                         if 's' in format_string:
                             sender_info = f'**{firstname} {lastname}** {username} id:{sender_id}\n----------\n'
 
                         if title_info or donor_info or sender_info:
-                            await tg_client.send_message(rule.recip_id, f'{title_info}{donor_info}{sender_info}')
+                            message_body += f'{title_info}{donor_info}{sender_info}'
 
                         if 'm' in format_string:
                             if not Config.enable_forbidden_content:
@@ -271,7 +273,10 @@ async def normal_handler(event):
                                                                                 f"from chat {event.chat_id} is not "
                                                                                 f"supported.")
                                     continue
-                            await tg_client.send_message(rule.recip_id, event.message)
+                            message_body += event.message.text
+
+                        event.message.text = message_body
+                        await tg_client.send_message(rule.recip_id, event.message)
                 # Это просто пример как обрабатывать ошибки telethon
                 # except (errors.SessionExpiredError, errors.SessionRevokedError):
                 #         self._logger.critical(
@@ -307,9 +312,10 @@ async def normal_handler(event):
                             title_info = f'**{rule.title}**\n'
                         if 'd' in format_string:
                             donor_info = f'**{rule.donor_name}\n{rule.donor_id}\n**'
+                            donor_info += f'@t.me/c/{event.message.peer_id.channel_id}/{event.message.id}'
 
                         if title_info or donor_info:
-                            await tg_client.send_message(rule.recip_id, f'{title_info}{donor_info}')
+                            message_body += f'{title_info}{donor_info}'
 
                         if 'm' in format_string:
                             if not Config.enable_forbidden_content:
@@ -318,7 +324,10 @@ async def normal_handler(event):
                                                                                 f"from chat {event.chat_id} is not "
                                                                                 f"supported.")
                                     continue
-                            await tg_client.send_message(rule.recip_id, event.message)
+                            message_body += event.message.text
+
+                        event.message.text = message_body
+                        await tg_client.send_message(rule.recip_id, event.message)
                 except Exception as e:
                     await tg_client.send_message(Config.app_channel_id,
                                                  f"{'Error!'} \n{str(e)}\n{rule.recip_id}")
