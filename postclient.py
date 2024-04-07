@@ -261,10 +261,10 @@ async def normal_handler(event):
                             donor_info = f'**{rule.donor_name}** id:{rule.donor_id}\n'
                             donor_info += f'@t.me/c/{event.message.peer_id.channel_id}/{event.message.id}\n'
                         if 's' in format_string:
-                            sender_info = f'**{firstname} {lastname}** {username} id:{sender_id}\n----------\n'
+                            sender_info = f'**{firstname} {lastname}** {username} id:{sender_id}\n'
 
                         if title_info or donor_info or sender_info:
-                            message_body += f'{title_info}{donor_info}{sender_info}'
+                            message_body += f'{title_info}{donor_info}{sender_info}----------\n'
 
                         if 'm' in format_string:
                             if not Config.enable_forbidden_content:
@@ -311,11 +311,14 @@ async def normal_handler(event):
                         if 't' in format_string:
                             title_info = f'**{rule.title}**\n'
                         if 'd' in format_string:
-                            donor_info = f'**{rule.donor_name}\n{rule.donor_id}\n**'
-                            donor_info += f'@t.me/c/{event.message.peer_id.channel_id}/{event.message.id}'
+                            donor_info = f'**{rule.donor_name}** id:{rule.donor_id}\n'
+                            if event.is_private:
+                                donor_info += f'@t.me/c/{event.message.peer_id.user_id}/{event.message.id}\n'
+                            else:
+                                donor_info += f'@t.me/c/{event.message.peer_id.channel_id}/{event.message.id}\n'
 
                         if title_info or donor_info:
-                            message_body += f'{title_info}{donor_info}'
+                            message_body += f'{title_info}{donor_info}----------\n'
 
                         if 'm' in format_string:
                             if not Config.enable_forbidden_content:

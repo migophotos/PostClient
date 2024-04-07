@@ -76,8 +76,16 @@ async def cmd_import_rules(db: Database, tg_client: TelegramClient, document: Do
             continue
 
         # check and convert str to int
-        recip_id = int(f'-{recip_id}') if not recip_id.startswith('-') else int(recip_id)
-        donor_id = int(f'-{donor_id}') if not donor_id.startswith('-') else int(donor_id)
+        if recip_id.startswith('100'):
+            recip_id = int(f'-{recip_id}') if not recip_id.startswith('-') else int(recip_id)
+        else:
+            recip_id = int(recip_id)
+
+        if donor_id.startswith('100'):
+            donor_id = int(f'-{donor_id}') if not donor_id.startswith('-') else int(donor_id)
+        else:
+            donor_id = int(donor_id)
+
         sender_id = int(sender_id) if sender_id.isdigit() else 0
         user_id = int(user_id) if user_id.isdigit() else 0
 
