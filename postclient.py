@@ -253,19 +253,16 @@ async def normal_handler(event):
                         title_info = ''
                         donor_info = ''
                         sender_info = ''
-                        message_body = ''
-                        channel_info = ''
 
                         if 't' in format_string:
                             title_info = f'**{rule.title}**\n'
                         if 'd' in format_string:
-                            donor_info = f'**{rule.donor_name}\n{rule.donor_id}\n**'
+                            donor_info = f'**{rule.donor_name}** id:{rule.donor_id}\n'
                         if 's' in format_string:
                             sender_info = f'**{firstname} {lastname}** {username} id:{sender_id}\n----------\n'
 
-                        if len(title_info) or len(donor_info) or len(sender_info):
-                            # await tg_client.send_message(rule.recip_id, f'{title_info}{donor_info}{sender_info}')
-                            channel_info += f'**{event.chat_id}**\n\n'
+                        if title_info or donor_info or sender_info:
+                            await tg_client.send_message(rule.recip_id, f'{title_info}{donor_info}{sender_info}')
 
                         if 'm' in format_string:
                             if not Config.enable_forbidden_content:
@@ -273,12 +270,8 @@ async def normal_handler(event):
                                     await tg_client.send_message(rule.recip_id, f"Forwards restricted saving content "
                                                                                 f"from chat {event.chat_id} is not "
                                                                                 f"supported.")
-                                    return False
-                            message_body = event.message.text
-                            # await tg_client.send_message(rule.recip_id, event.message)
-                        event.message.text = f'{title_info}{donor_info}{sender_info}{channel_info}{message_body}'
-                        await tg_client.send_message(rule.recip_id, event.message)
-
+                                    continue
+                            await tg_client.send_message(rule.recip_id, event.message)
                 # Это просто пример как обрабатывать ошибки telethon
                 # except (errors.SessionExpiredError, errors.SessionRevokedError):
                 #         self._logger.critical(
@@ -291,7 +284,8 @@ async def normal_handler(event):
                                                  f"{rule.title}\n"
                                                  f"R: {rule.recip_id}\n"
                                                  f"D: {rule.donor_id}")
-
+                finally:
+                    continue
             else:
                 try:
                     if not check_black_list(event.message.text, rule.black_list):
@@ -306,7 +300,6 @@ async def normal_handler(event):
                         # format_parts = sender["repost_format"].lower().split(" ")
                         title_info = ''
                         donor_info = ''
-                        channel_info = ''
                         message_body = ''
 
                         format_string = "m" if len(rule.format) == 0 else rule.format.lower()
@@ -315,24 +308,22 @@ async def normal_handler(event):
                         if 'd' in format_string:
                             donor_info = f'**{rule.donor_name}\n{rule.donor_id}\n**'
 
-                        if len(title_info) or len(donor_info):
-                            channel_info += f'{event.chat_id}\n'
-                            # await tg_client.send_message(rule.recip_id, f'{title_info}{donor_info}')
+                        if title_info or donor_info:
+                            await tg_client.send_message(rule.recip_id, f'{title_info}{donor_info}')
+
                         if 'm' in format_string:
                             if not Config.enable_forbidden_content:
                                 if event.message.chat and event.message.chat.noforwards:
                                     await tg_client.send_message(rule.recip_id, f"Forwards restricted saving content "
                                                                                 f"from chat {event.chat_id} is not "
                                                                                 f"supported.")
-                                    return False
-                            message_body += event.message.text
-                        event.message.text = f'{title_info}{donor_info}{channel_info}{message_body}'
-                        # await tg_client.send_message(rule.recip_id, event.message)
-                        await tg_client.send_message(rule.recip_id, event.message)
-
+                                    continue
+                            await tg_client.send_message(rule.recip_id, event.message)
                 except Exception as e:
                     await tg_client.send_message(Config.app_channel_id,
                                                  f"{'Error!'} \n{str(e)}\n{rule.recip_id}")
+                finally:
+                    continue
 
 if __name__ == '__main__':
     with tg_client:
