@@ -271,7 +271,7 @@ class ImageTable(BaseTable):
 
 
 class RulesTable(BaseTable):
-    __slots__ = ("recip_name", "recip_id", "donor_name", "donor_id", "sender_fname", "sender_sname", "sender_uname",
+    __slots__ = ("recip_name", "recip_id", "donor_name", "donor_id", "sender_fname", "sender_lname", "sender_uname",
                  "sender_id", "filter", "black_list", "and_list", "or_list", "format", "title", "status", "user_id")
 
     def __init__(self, connection: Connection, cursor: Cursor):
@@ -281,7 +281,7 @@ class RulesTable(BaseTable):
         self.donor_name: str = ''
         self.donor_id: int = 0
         self.sender_fname: str = ''
-        self.sender_sname: str = ''
+        self.sender_lname: str = ''
         self.sender_uname: str = ''
         self.sender_id: int = 0
         self.filter: str = ''       # must contain the * character to disable filtering and accept all messages.
