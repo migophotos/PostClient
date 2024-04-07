@@ -1,3 +1,5 @@
+from typing import Any
+
 from telethon import TelegramClient, events, errors
 import asyncio
 import logging
@@ -17,54 +19,57 @@ logging.basicConfig(
 tg_client = TelegramClient(Config.app_name, Config.api_id, Config.api_hash)
 db = Database(db_file=Config.database)
 
+current_state: dict[str, Any] = {}
+
 rules_list = []
 
 
 async def reload_filters():
     rules_list.clear()
+    # rules = await db.get_rules_table().get_rules()
+    # # check for special rule where rule.recip_id equals to rule.donor_id and equals to Config.app_channel_id
+    # # and rule.filter contains text 'cmd:restart*'
+    # special_rule = {
+    #     "recip_id": Config.app_channel_id,
+    #     "donor_id": Config.app_channel_id,
+    #     "filter": 'cmd:restart*',
+    #     "is_found": False
+    # }
+    # for rule in rules:
+    #     if rule.recip_id == special_rule["recip_id"] \
+    #             and rule.donor_id == special_rule["donor_id"] \
+    #             and rule.filter == special_rule["filter"]:
+    #         special_rule["is_found"] = True
+    #     rules_list.append(rule)
+    # # if special rule isn't found, append it!
+    # if not special_rule["is_found"]:
+    #     special_row: list = [
+    #         Config.app_channel_name, Config.app_channel_id,
+    #         Config.app_channel_name, Config.app_channel_id,
+    #         '', '', '', 0,
+    #         special_rule["filter"],
+    #         '', '', '', 'M', 'Special channel',
+    #         'active', Config.owner_id
+    #     ]
+    #     rule = db.get_rules_table().convert_to_model_obj(special_row)
+    #     rules_list.append(rule)
     rules = await db.get_rules_table().get_rules()
-    # check for special rule where rule.recip_id equals to rule.donor_id and equals to Config.app_channel_id
-    # and rule.filter contains text 'cmd:restart*'
-    special_rule = {
-        "recip_id": Config.app_channel_id,
-        "donor_id": Config.app_channel_id,
-        "filter": 'cmd:restart*',
-        "is_found": False
-    }
     for rule in rules:
-        if rule.recip_id == special_rule["recip_id"] \
-                and rule.donor_id == special_rule["donor_id"] \
-                and rule.filter == special_rule["filter"]:
-            special_rule["is_found"] = True
         rules_list.append(rule)
-    # if special rule isn't found, append it!
-    if not special_rule["is_found"]:
-        special_row: list = [
-            Config.app_channel_name, Config.app_channel_id,
-            Config.app_channel_name, Config.app_channel_id,
-            '', '', '', 0,
-            special_rule["filter"],
-            '', '', '', 'M', 'Special channel',
-            'active', Config.owner_id
-        ]
-        rule = db.get_rules_table().convert_to_model_obj(special_row)
-        rules_list.append(rule)
-
     res = len(rules_list)
 
-    await tg_client.get_me()
+    # await tg_client.get_me()
     if not res:
-        await tg_client.send_message('me',
+        await tg_client.send_message(Config.app_channel_id,
                                      "Rules not found. Fill the CSV file and upload it to my bot!\n\n"
                                      "I'm ready to work.")
         return False
     else:
-        await tg_client.send_message('me', f"{len(rules_list)} rules data loaded:")
-        rules_text = ''
+        rules_text = f"**{len(rules_list)} rules data loaded:**\n\n"
         for rule in rules_list:
             rules_text += f'{rule}\n\n'
-        rules_text += "I'm ready to work."
-        await tg_client.send_message('me', rules_text)
+        rules_text += "**I'm ready to work.**\nSend me a 'help' command for information about control commands."
+        await tg_client.send_message(Config.app_channel_id, rules_text)
         return res
 
 
@@ -129,24 +134,26 @@ async def normal_handler(event):
     if event.chat_id == Config.app_channel_id:
         text: str = event.message.text.lower().replace(' ', '')
         if text == 'help':
-            help_text = f"get my dialogs - show all the dialogs/conversations that you are part of\n\n" \
-                        f"get my rules - export rules definition into CSV file\n\n" \
-                        f"cmd:restart reload - reload rules from database\n\n" \
-                        f"you can upload CSV file here to change rules in database"
+            help_text = f"**Hello {Config.owner_name}!**\n" \
+                        f"You can use the following commands to control:\n\n"\
+                        f"cmd:my dialogs - show all the dialogs/conversations that you are part of;\n\n" \
+                        f"cmd:export rules - export rules definition into CSV file;\n\n" \
+                        f"cmd:import rules - import rules CSV file into database;\n\n" \
+                        f"cmd:restart reload - reload rules from database;\n\n"
             await tg_client.send_message(Config.app_channel_id, help_text)
             return True
-        if text == 'getmydialogs':
+        if text == 'cmd:mydialogs':
             # export all the dialogs/conversations that you are part of:
             channels = []
             groups = []
             users = []
             my_dialogs = ""
             async for dialog in tg_client.iter_dialogs():
-                if dialog.is_channel:
-                    channels.append(f"{dialog.name} has ID **{dialog.id}**\n")
                 if dialog.is_group:
                     groups.append(f"{dialog.name} has ID **{dialog.id}**\n")
-                if dialog.is_user:
+                elif dialog.is_channel:
+                    channels.append(f"{dialog.name} has ID **{dialog.id}**\n")
+                elif dialog.is_user:
                     users.append(f"{dialog.name} has ID **{dialog.id}**\n")
 
             my_dialogs += f"+++ **Channels** +++\n"
@@ -161,14 +168,28 @@ async def normal_handler(event):
 
             await tg_client.send_message(Config.app_channel_id, my_dialogs)
             return True
-        if text == 'getmyrules':
+        if text == 'cmd:exportrules':
             await cmd_export_rules(db, tg_client)
             return True
+        if text == 'cmd:importrules':
+            current_state["wait_for_rules_csv"] = True
+            await tg_client.send_message(Config.app_channel_id, f"**Hello {Config.owner_name}!**\nUpload CSV file with "
+                                                                f"new rules here and I'll import it into the database.")
+            return True
+
         if event.message.document and (event.message.document.mime_type == 'text/comma-separated-values'
                                        or event.message.document.mime_type == 'text/csv'):
-            doc = event.message.document
-            await cmd_import_rules(db, tg_client, doc)
-            return await reload_filters()
+            if current_state.get("wait_for_rules_csv"):
+                doc = event.message.document
+                await cmd_import_rules(db, tg_client, doc)
+                await reload_filters()
+                current_state["wait_for_rules_csv"] = False
+                return True
+            else:
+                await tg_client.send_message(Config.app_channel_id, "Unwanted operation detected. "
+                                                                    "If you want to send me a CSV file with new rules, "
+                                                                    "then you must use the command: cmd:import rules")
+                return False
 
         if event.message.text == 'cmd:restart reload':
             # in any case reload filters from database
@@ -232,6 +253,8 @@ async def normal_handler(event):
                         title_info = ''
                         donor_info = ''
                         sender_info = ''
+                        message_body = ''
+                        channel_info = ''
 
                         if 't' in format_string:
                             title_info = f'**{rule.title}**\n'
@@ -241,7 +264,9 @@ async def normal_handler(event):
                             sender_info = f'**{firstname} {lastname}** {username} id:{sender_id}\n----------\n'
 
                         if len(title_info) or len(donor_info) or len(sender_info):
-                            await tg_client.send_message(rule.recip_id, f'{title_info}{donor_info}{sender_info}')
+                            # await tg_client.send_message(rule.recip_id, f'{title_info}{donor_info}{sender_info}')
+                            channel_info += f'**{event.chat_id}**\n\n'
+
                         if 'm' in format_string:
                             if not Config.enable_forbidden_content:
                                 if event.message.chat and event.message.chat.noforwards:
@@ -249,8 +274,10 @@ async def normal_handler(event):
                                                                                 f"from chat {event.chat_id} is not "
                                                                                 f"supported.")
                                     return False
-
-                            await tg_client.send_message(rule.recip_id, event.message)
+                            message_body = event.message.text
+                            # await tg_client.send_message(rule.recip_id, event.message)
+                        event.message.text = f'{title_info}{donor_info}{sender_info}{channel_info}{message_body}'
+                        await tg_client.send_message(rule.recip_id, event.message)
 
                 # Это просто пример как обрабатывать ошибки telethon
                 # except (errors.SessionExpiredError, errors.SessionRevokedError):
@@ -279,7 +306,8 @@ async def normal_handler(event):
                         # format_parts = sender["repost_format"].lower().split(" ")
                         title_info = ''
                         donor_info = ''
-                        # message_body = ''
+                        channel_info = ''
+                        message_body = ''
 
                         format_string = "m" if len(rule.format) == 0 else rule.format.lower()
                         if 't' in format_string:
@@ -288,15 +316,20 @@ async def normal_handler(event):
                             donor_info = f'**{rule.donor_name}\n{rule.donor_id}\n**'
 
                         if len(title_info) or len(donor_info):
-                            await tg_client.send_message(rule.recip_id, f'{title_info}{donor_info}')
-                        if not Config.enable_forbidden_content:
-                            if event.message.chat and event.message.chat.noforwards:
-                                await tg_client.send_message(rule.recip_id, f"Forwards restricted saving content "
-                                                                            f"from chat {event.chat_id} is not "
-                                                                            f"supported.")
-                                return False
-
+                            channel_info += f'{event.chat_id}\n'
+                            # await tg_client.send_message(rule.recip_id, f'{title_info}{donor_info}')
+                        if 'm' in format_string:
+                            if not Config.enable_forbidden_content:
+                                if event.message.chat and event.message.chat.noforwards:
+                                    await tg_client.send_message(rule.recip_id, f"Forwards restricted saving content "
+                                                                                f"from chat {event.chat_id} is not "
+                                                                                f"supported.")
+                                    return False
+                            message_body += event.message.text
+                        event.message.text = f'{title_info}{donor_info}{channel_info}{message_body}'
+                        # await tg_client.send_message(rule.recip_id, event.message)
                         await tg_client.send_message(rule.recip_id, event.message)
+
                 except Exception as e:
                     await tg_client.send_message(Config.app_channel_id,
                                                  f"{'Error!'} \n{str(e)}\n{rule.recip_id}")

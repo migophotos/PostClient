@@ -35,11 +35,11 @@ async def cmd_export_rules(db: Database, tg_client: TelegramClient):
             writer = csv.writer(csv_file)
             writer.writerows(rows)
 
-        await tg_client.send_file('me', rules_csv_file, caption="Rules for Google Sheet")
+        await tg_client.send_file(Config.app_channel_id, rules_csv_file, caption="Rules for Google Sheet")
 
     except Exception as e:
-        await tg_client.send_message(
-            f"Error: {str(e)}\nContact the author: @MigoPhotos")
+        await tg_client.send_message(Config.app_channel_id,
+                                     f"Error: {str(e)}\nContact the author: @MigoPhotos")
 
 
 async def cmd_import_rules(db: Database, tg_client: TelegramClient, document: Document):
@@ -50,38 +50,45 @@ async def cmd_import_rules(db: Database, tg_client: TelegramClient, document: Do
     cat_list = re.findall(r'.*\n', cat_list_csv)
     cat_list.pop(0)
     csv_data = csv.reader(cat_list)
-    await db.get_rules_table().delete_all_rules()
+
+    rt = db.get_rules_table()
+    await rt.delete_all_rules()
 
     new_rules_count = 0
     for row in csv_data:
         if len(row) != 16:
             continue
+
         data = {}
-        recip_name, recip_id, donor_name, donor_id, sender_fname, sender_sname, sender_uname, \
+        recip_name, recip_id, donor_name, donor_id, sender_fname, sender_lname, sender_uname, \
             sender_id, rule_filter, black_list, and_list, or_list, rule_format, title, status, user_id = row
+
+        if recip_id == '' or donor_id == '':
+            await tg_client.send_message(Config.app_channel_id,
+                                         f'Recipient ID {recip_id} or Donor ID {donor_id} cannot be empty! Skipped')
+            continue
 
         # Very Important check: the recipient channel link must not be the same as the donor channel link,
         # excluding link to special channel, which can only be created by system administrator!
         if recip_id == donor_id:
-            await tg_client.send_message(
-                'me',
+            await tg_client.send_message(Config.app_channel_id,
                 f'Skipped rule: {recip_id} == {donor_id} - matching input and output channels are prohibited!')
             continue
 
-        if recip_id == '' or donor_id == '' or user_id == '':
-            await tg_client.send_message(
-                'me',
-                f'User ID {user_id}, Recipient ID {recip_id} and Donor ID {donor_id} cannot be empty! Skipped')
-            continue
+        # check and convert str to int
+        recip_id = int(f'-{recip_id}') if not recip_id.startswith('-') else int(recip_id)
+        donor_id = int(f'-{donor_id}') if not donor_id.startswith('-') else int(donor_id)
+        sender_id = int(sender_id) if sender_id.isdigit() else 0
+        user_id = int(user_id) if user_id.isdigit() else 0
 
         data["recip_name"] = recip_name
-        data["recip_id"] = int(recip_id)
+        data["recip_id"] = recip_id
         data["donor_name"] = donor_name
-        data["donor_id"] = int(donor_id)
+        data["donor_id"] = donor_id
         data["sender_fname"] = sender_fname
-        data["sender_sname"] = sender_sname
+        data["sender_lname"] = sender_lname
         data["sender_uname"] = sender_uname
-        data["sender_id"] = int(sender_id)
+        data["sender_id"] = sender_id
         data["filter"] = rule_filter
         data["black_list"] = black_list
         data["and_list"] = and_list
@@ -89,9 +96,9 @@ async def cmd_import_rules(db: Database, tg_client: TelegramClient, document: Do
         data["format"] = rule_format or 'M'
         data["title"] = title
         data["status"] = status
-        data["user_id"] = int(user_id)
+        data["user_id"] = user_id
 
-        await db.get_rules_table().add_rule(data)
+        await rt.add_rule(data)
         new_rules_count += 1
 
     await tg_client.send_message(Config.app_channel_id, f'{new_rules_count} rules was found and stored in database\n')
