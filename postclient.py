@@ -259,21 +259,21 @@ async def normal_handler(event):
                             title_info = f'**{rule.title}**\n'
                         if 'd' in format_string:
                             donor_info = f'**{rule.donor_name}** id:{rule.donor_id}\n'
-                            donor_info += f'@t.me/c/{event.message.peer_id.channel_id}/{event.message.id}\n'
                         if 's' in format_string:
                             sender_info = f'**{firstname} {lastname}** {username} id:{sender_id}\n'
 
                         if title_info or donor_info or sender_info:
-                            message_body += f'{title_info}{donor_info}{sender_info}----------\n'
+                            message_body += f'{title_info}{donor_info}{sender_info}' + \
+                                            f'@t.me/c/{event.message.peer_id.channel_id}/{event.message.id}\n' \
+                                            f'----------\n'
 
                         if 'm' in format_string:
+                            content = event.message.text
                             if not Config.enable_forbidden_content:
                                 if event.message.chat and event.message.chat.noforwards:
-                                    await tg_client.send_message(rule.recip_id, f"Forwards restricted saving content "
-                                                                                f"from chat {event.chat_id} is not "
-                                                                                f"supported.")
-                                    continue
-                            message_body += event.message.text
+                                    content = f"Forwards restricted saving content from chat " \
+                                                    f"{event.chat_id} is forbidden."
+                            message_body += content
 
                         event.message.text = message_body
                         await tg_client.send_message(rule.recip_id, event.message)
@@ -312,22 +312,22 @@ async def normal_handler(event):
                             title_info = f'**{rule.title}**\n'
                         if 'd' in format_string:
                             donor_info = f'**{rule.donor_name}** id:{rule.donor_id}\n'
-                            if event.is_private:
-                                donor_info += f'@t.me/c/{event.message.peer_id.user_id}/{event.message.id}\n'
-                            else:
-                                donor_info += f'@t.me/c/{event.message.peer_id.channel_id}/{event.message.id}\n'
 
                         if title_info or donor_info:
-                            message_body += f'{title_info}{donor_info}----------\n'
+                            message_body += f'{title_info}{donor_info}'
+                            if event.is_private:
+                                message_body += f'@t.me/c/{event.message.peer_id.user_id}/{event.message.id}\n'
+                            else:
+                                message_body += f'@t.me/c/{event.message.peer_id.channel_id}/{event.message.id}\n'
+                            message_body += f'----------\n'
 
                         if 'm' in format_string:
+                            content = event.message.text
                             if not Config.enable_forbidden_content:
                                 if event.message.chat and event.message.chat.noforwards:
-                                    await tg_client.send_message(rule.recip_id, f"Forwards restricted saving content "
-                                                                                f"from chat {event.chat_id} is not "
-                                                                                f"supported.")
-                                    continue
-                            message_body += event.message.text
+                                    content = f"Forwards restricted saving content from chat " \
+                                                    f"{event.chat_id} is forbidden."
+                            message_body += content
 
                         event.message.text = message_body
                         await tg_client.send_message(rule.recip_id, event.message)
