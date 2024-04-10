@@ -1,6 +1,7 @@
 from typing import Any
 
 from telethon import TelegramClient, events, errors
+from telethon.tl.types import User, Channel
 import asyncio
 import logging
 import re
@@ -82,7 +83,7 @@ async def main():
 
 def check_black_list(text: str, black_list: str):
     """
-    Check each word in text and if one found in black list return boolean result
+    Check each word in text (case-insensitive) and if one found in black list return boolean result
     :param text: text for checking
     :param black_list: forbidden list
     :return: True means that All words in the message have been verified, No - was found
@@ -90,7 +91,7 @@ def check_black_list(text: str, black_list: str):
     if len(black_list):
         opt = re.sub(r'[^\w\s]', '', text)  # remove all punctuations from string
         strings = opt.lower().split()
-        bl_list = black_list.split('|')
+        bl_list = black_list.lower().split('|')
         res = flt(strings, bl_list)
         if len(res):
             return False
@@ -99,6 +100,7 @@ def check_black_list(text: str, black_list: str):
 
 def check_or_list(text: str, or_list: str):
     """
+    (case-insensitive)
     :param text: text for checking
     :param or_list: a list of words, at least one of which must be found in the text
     :return: Returns True if at least one word from the list is found in the text
@@ -106,7 +108,7 @@ def check_or_list(text: str, or_list: str):
     if len(or_list):
         opt = re.sub(r'[^\w\s]', '', text)  # remove all punctuations from string
         strings = opt.lower().split()
-        ors = or_list.split('|')
+        ors = or_list.lower().split('|')
         res = flt(strings, ors)
         return len(res)
     return True
@@ -114,6 +116,7 @@ def check_or_list(text: str, or_list: str):
 
 def check_for_and(text: str, and_list: str):
     """
+    (case-insensitive)
     :param text: text for checking
     :param and_list: List of words that must be in the text
     :return: Returns true if all words from the list are found in the text
@@ -121,7 +124,7 @@ def check_for_and(text: str, and_list: str):
     if len(and_list):
         opt = re.sub(r'[^\w\s]', '', text)  # remove all punctuations from string
         strings = opt.lower().split()
-        and_words_list = and_list.split('+')
+        and_words_list = and_list.lower().split('+')
         for and_word in and_words_list:
             if len(flt(strings, [and_word])) == 0:
                 return False
@@ -198,8 +201,10 @@ async def normal_handler(event):
         return False
     # now, lets filter all other messages
     for rule in rules_list:
+        # print(f'{event.chat_id=}')
         if rule.status != 'active':
             continue
+        # print(f'{event.chat_id=} - is active')
         if rule.donor_id == event.chat_id:
             if event.is_group:
                 username = ''
@@ -207,10 +212,10 @@ async def normal_handler(event):
                 lastname = ''
                 sender_id = 0
                 is_found = False
-                if event.message and event.message.sender:
-                    username = event.message.sender.username or ''
-                    firstname = event.message.sender.first_name or ''
-                    lastname = event.message.sender.last_name or ''
+                if event.message and event.message.sender and type(event.message.sender) == User:
+                    username = event.message.sender.username if event.message.sender.username else ''
+                    firstname = event.message.sender.first_name if event.message.sender.first_name else ''
+                    lastname = event.message.sender.last_name if event.message.sender.last_name else ''
                     sender_id = event.message.sender_id or 0
                     is_found = False
                 else:
@@ -256,7 +261,7 @@ async def normal_handler(event):
                         message_body = ''
 
                         if 't' in format_string:
-                            title_info = f'**{rule.title}**\n'
+                            title_info = f'**{rule.title}**\n' if len(rule.title) else f'**flt: {rule.filter}**\n'
                         if 'd' in format_string:
                             donor_info = f'**{rule.donor_name}** id:{rule.donor_id}\n'
                         if 's' in format_string:
@@ -267,16 +272,19 @@ async def normal_handler(event):
                                             f'@t.me/c/{event.message.peer_id.channel_id}/{event.message.id}\n' \
                                             f'----------\n'
 
-                        if 'm' in format_string:
-                            content = event.message.text
+                        if 'm' not in format_string:
+                            await tg_client.send_message(rule.recip_id, message_body)
+                        else:
                             if not Config.enable_forbidden_content:
                                 if event.message.chat and event.message.chat.noforwards:
-                                    content = f"Forwards restricted saving content from chat " \
+                                    message_body += f"Forwards restricted saving content from chat " \
                                                     f"{event.chat_id} is forbidden."
-                            message_body += content
+                                    await tg_client.send_message(rule.recip_id, message_body)
+                                    continue
+                            message_body += event.message.text
+                            event.message.text = message_body
+                            await tg_client.send_message(rule.recip_id, event.message)
 
-                        event.message.text = message_body
-                        await tg_client.send_message(rule.recip_id, event.message)
                 # Это просто пример как обрабатывать ошибки telethon
                 # except (errors.SessionExpiredError, errors.SessionRevokedError):
                 #         self._logger.critical(
@@ -309,7 +317,7 @@ async def normal_handler(event):
 
                         format_string = "m" if len(rule.format) == 0 else rule.format.lower()
                         if 't' in format_string:
-                            title_info = f'**{rule.title}**\n'
+                            title_info = f'**{rule.title}**\n' if len(rule.title) else f'**flt: {rule.filter}**\n'
                         if 'd' in format_string:
                             donor_info = f'**{rule.donor_name}** id:{rule.donor_id}\n'
 
@@ -321,16 +329,19 @@ async def normal_handler(event):
                                 message_body += f'@t.me/c/{event.message.peer_id.channel_id}/{event.message.id}\n'
                             message_body += f'----------\n'
 
-                        if 'm' in format_string:
-                            content = event.message.text
+                        if 'm' not in format_string:
+                            await tg_client.send_message(rule.recip_id, message_body)
+                        else:
                             if not Config.enable_forbidden_content:
                                 if event.message.chat and event.message.chat.noforwards:
-                                    content = f"Forwards restricted saving content from chat " \
+                                    message_body += f"Forwards restricted saving content from chat " \
                                                     f"{event.chat_id} is forbidden."
-                            message_body += content
+                                    await tg_client.send_message(rule.recip_id, message_body)
+                                    continue
+                            message_body += event.message.text
+                            event.message.text = message_body
+                            await tg_client.send_message(rule.recip_id, event.message)
 
-                        event.message.text = message_body
-                        await tg_client.send_message(rule.recip_id, event.message)
                 except Exception as e:
                     await tg_client.send_message(Config.app_channel_id,
                                                  f"{'Error!'} \n{str(e)}\n{rule.recip_id}")
