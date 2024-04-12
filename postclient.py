@@ -237,7 +237,7 @@ async def normal_handler(event):
 
         return False
     # now, lets filter all other messages
-    print(f"{event.message.peer_id.channel_id}/{event.message.id} msg: {event.message.text}")
+    # print(f"{event.message.peer_id.channel_id}/{event.message.id} msg: {event.message.text}")
     # measure_time(event.message.peer_id.channel_id, event.message.id)
 
     await msg_queue.put(event)
