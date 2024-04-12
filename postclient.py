@@ -8,7 +8,7 @@ import re
 
 from database.rules_io import cmd_export_rules, cmd_import_rules
 from shared.config import Config
-from database.orm_sqlite3 import Database
+from database.orm_sqlite3 import Database, RulesTable
 from shared.filter_by_parameters import check_filter, flt
 
 
@@ -27,33 +27,6 @@ rules_list = []
 
 async def reload_filters():
     rules_list.clear()
-    # rules = await db.get_rules_table().get_rules()
-    # # check for special rule where rule.recip_id equals to rule.donor_id and equals to Config.app_channel_id
-    # # and rule.filter contains text 'cmd:restart*'
-    # special_rule = {
-    #     "recip_id": Config.app_channel_id,
-    #     "donor_id": Config.app_channel_id,
-    #     "filter": 'cmd:restart*',
-    #     "is_found": False
-    # }
-    # for rule in rules:
-    #     if rule.recip_id == special_rule["recip_id"] \
-    #             and rule.donor_id == special_rule["donor_id"] \
-    #             and rule.filter == special_rule["filter"]:
-    #         special_rule["is_found"] = True
-    #     rules_list.append(rule)
-    # # if special rule isn't found, append it!
-    # if not special_rule["is_found"]:
-    #     special_row: list = [
-    #         Config.app_channel_name, Config.app_channel_id,
-    #         Config.app_channel_name, Config.app_channel_id,
-    #         '', '', '', 0,
-    #         special_rule["filter"],
-    #         '', '', '', 'M', 'Special channel',
-    #         'active', Config.owner_id
-    #     ]
-    #     rule = db.get_rules_table().convert_to_model_obj(special_row)
-    #     rules_list.append(rule)
     rules = await db.get_rules_table().get_rules()
     for rule in rules:
         rules_list.append(rule)
@@ -66,10 +39,23 @@ async def reload_filters():
                                      "I'm ready to work.")
         return False
     else:
-        rules_text = f"**{len(rules_list)} rules data loaded:**\n\n"
-        for rule in rules_list:
-            rules_text += f'{rule}\n\n'
-        rules_text += "**I'm ready to work.**\nSend me a 'help' command for information about control commands."
+
+        await tg_client.send_message(Config.app_channel_id, f"**{len(rules_list)} rules data loaded:**\n\n")
+        rules_text = ''
+        for index, rule in enumerate(rules_list):
+            if (index + 1) % 5:
+                rules_text += f'**{index + 1}**. {RulesTable.serialize(rule)}\n\n'
+            else:
+                rules_text += f'**{index + 1}**. {RulesTable.serialize(rule)}\n\n'
+                # print each 10 rules
+                await tg_client.send_message(Config.app_channel_id, rules_text)
+                rules_text = ''
+
+        if len(rules_text):
+            # print last group of rules
+            await tg_client.send_message(Config.app_channel_id, rules_text)
+
+        rules_text = "**I'm ready to work.**\nSend me a 'help' command for information about control commands."
         await tg_client.send_message(Config.app_channel_id, rules_text)
         return res
 
@@ -86,7 +72,7 @@ def check_black_list(text: str, black_list: str):
     Check each word in text (case-insensitive) and if one found in black list return boolean result
     :param text: text for checking
     :param black_list: forbidden list
-    :return: True means that All words in the message have been verified, No - was found
+    :return: True means that All words in the message have been verified, False - was found
     """
     if len(black_list):
         opt = re.sub(r'[^\w\s]', '', text)  # remove all punctuations from string
@@ -119,7 +105,7 @@ def check_for_and(text: str, and_list: str):
     (case-insensitive)
     :param text: text for checking
     :param and_list: List of words that must be in the text
-    :return: Returns true if all words from the list are found in the text
+    :return: Returns True if all words from the list are found in the text
     """
     if len(and_list):
         opt = re.sub(r'[^\w\s]', '', text)  # remove all punctuations from string
@@ -153,23 +139,42 @@ async def normal_handler(event):
             my_dialogs = ""
             async for dialog in tg_client.iter_dialogs():
                 if dialog.is_group:
-                    groups.append(f"{dialog.name} has ID **{dialog.id}**\n")
+                    groups.append(f"**{len(groups)+1}**. gr: {dialog.name}\t id: **{dialog.id}**\n")
                 elif dialog.is_channel:
-                    channels.append(f"{dialog.name} has ID **{dialog.id}**\n")
+                    channels.append(f"**{len(channels)+1}**. ch: {dialog.name}\t id: **{dialog.id}**\n")
                 elif dialog.is_user:
-                    users.append(f"{dialog.name} has ID **{dialog.id}**\n")
+                    users.append(f"**{len(users)+1}**. user: {dialog.name}\t id: **{dialog.id}**\n")
 
-            my_dialogs += f"+++ **Channels** +++\n"
-            for item in channels:
+            # print dialogs list
+            # await tg_client.send_message(Config.app_channel_id, f"+++ **Channels** +++\n")
+            my_dialogs = ''
+            for index, item in enumerate(channels):
                 my_dialogs += item
-            my_dialogs += f"\n+++ **Groups** +++\n"
-            for item in groups:
-                my_dialogs += item
-            my_dialogs += f"\n+++ **Users** +++\n"
-            for item in users:
-                my_dialogs += item
+                if (index+1) % 10 == 0:
+                    await tg_client.send_message(Config.app_channel_id, my_dialogs)
+                    my_dialogs = ''
+            if len(my_dialogs):
+                await tg_client.send_message(Config.app_channel_id, my_dialogs)
 
-            await tg_client.send_message(Config.app_channel_id, my_dialogs)
+            # await tg_client.send_message(Config.app_channel_id, f"\n+++ **Groups** +++\n")
+            my_dialogs = ''
+            for index, item in enumerate(groups):
+                my_dialogs += item
+                if (index+1) % 10 == 0:
+                    await tg_client.send_message(Config.app_channel_id, my_dialogs)
+                    my_dialogs = ''
+            if len(my_dialogs):
+                await tg_client.send_message(Config.app_channel_id, my_dialogs)
+
+            # await tg_client.send_message(Config.app_channel_id, f"\n+++ **Users** +++\n")
+            my_dialogs = ''
+            for index, item in enumerate(users):
+                my_dialogs += item
+                if (index+1) % 10 == 0:
+                    await tg_client.send_message(Config.app_channel_id, my_dialogs)
+                    my_dialogs = ''
+            if len(my_dialogs):
+                await tg_client.send_message(Config.app_channel_id, my_dialogs)
             return True
         if text == 'cmd:exportrules':
             await cmd_export_rules(db, tg_client)

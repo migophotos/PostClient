@@ -295,6 +295,19 @@ class RulesTable(BaseTable):
         self.status: str = ""       # set to 'active' to activate the rule!
         self.user_id: int = 0
 
+    @staticmethod
+    def serialize(rule) -> str:
+        return f"Rule Title: {rule.title}\n" \
+               f"Recipient: '{rule.recip_name}' id:{rule.recip_id}\n" \
+               f"Donor: '{rule.donor_name}' id: {rule.donor_id}\n" \
+               f"Sender: {rule.sender_fname} {rule.sender_lname} @{rule.sender_uname} id: {rule.sender_id}\n" \
+               f"Filter: {rule.filter}\n" \
+               f"Black list: {rule.black_list}\n" \
+               f"AND list: {rule.and_list}\n" \
+               f"OR list: {rule.or_list}\n" \
+               f"Format: {rule.format}\n" \
+               f"**Status: {rule.status}**"
+
     async def create_table(self):
         create_table_query = f"CREATE TABLE IF NOT EXISTS {self.__table_name__}(" \
                              f"{self.__slots__[0]} TEXT," \
