@@ -25,6 +25,8 @@ current_state: dict[str, Any] = {}
 
 rules_list = []
 
+msg_queue = asyncio.Queue()
+
 
 async def reload_filters():
     rules_list.clear()
@@ -62,6 +64,9 @@ async def main():
     await db.create_tables()
 
     await reload_filters()
+
+    # start the consumer
+    _ = asyncio.create_task(consumer())
     await tg_client.run_until_disconnected()
 
 
@@ -164,7 +169,6 @@ async def normal_handler(event):
             channels = []
             groups = []
             users = []
-            my_dialogs = ""
             async for dialog in tg_client.iter_dialogs():
                 if dialog.is_group:
                     groups.append(f"**{len(groups)+1}**. gr: {dialog.name}\t id: **{dialog.id}**\n")
@@ -233,156 +237,176 @@ async def normal_handler(event):
 
         return False
     # now, lets filter all other messages
-    # print(f"{event.message.peer_id.channel_id}/{event.message.id} msg: {event.message.text}")
+    print(f"{event.message.peer_id.channel_id}/{event.message.id} msg: {event.message.text}")
     # measure_time(event.message.peer_id.channel_id, event.message.id)
 
-    for rule in rules_list:
-        # print(f'{event.chat_id=}')
-        if rule.status != 'active':
+    await msg_queue.put(event)
+
+
+async def consumer():
+    while True:
+        try:
+            event = msg_queue.get_nowait()
+            for rule in rules_list:
+                # print(f'{event.chat_id=}')
+                if rule.status != 'active':
+                    continue
+                # print(f'{event.chat_id=} - is active')
+                if rule.donor_id == event.chat_id:
+                    if event.is_group:
+                        username = ''
+                        firstname = ''
+                        lastname = ''
+                        sender_id = 0
+                        is_found = False
+
+                        # print(in case of message sent by user, get his properties")
+                        if event.message and event.message.sender and type(event.message.sender) == User:
+                            username = event.message.sender.username or ''
+                            firstname = event.message.sender.first_name or ''
+                            lastname = event.message.sender.last_name or ''
+                            sender_id = event.message.sender_id or 0
+                            is_found = False
+                        else:
+                            is_found = True
+
+                        if rule.sender_id == 0 and rule.sender_uname == '' and \
+                                rule.sender_fname == '' and rule.sender_lname == '':
+                            is_found = True  # just for exclude sender checking
+
+                        if not is_found:
+                            # print("lets check sender properties")
+                            is_found = check_user_prop({
+                                "id": sender_id,
+                                "uname": username,
+                                "fname": firstname,
+                                "lname": lastname
+                            }, rule)
+
+                        if is_found:
+                            # check black_list, and_list and or_list
+                            if not check_black_list(event.message.text, rule.black_list):
+                                continue
+                            if not check_or_list(event.message.text, rule.or_list):
+                                continue
+                            if not check_for_and(event.message.text, rule.and_list):
+                                continue
+
+                            # check filter now
+                            is_found = check_filter(event.message.text, rule.filter)
+                        try:
+                            if is_found:
+                                if len(username) > 0:
+                                    username = username if username.startswith("@") else f"@{username}"
+
+                                format_string = "m" if len(rule.format) == 0 else rule.format.lower()
+                                title_info = ''
+                                donor_info = ''
+                                sender_info = ''
+                                message_body = ''
+
+                                if 't' in format_string:
+                                    title_info = f'**{rule.title}**\n' if len(
+                                        rule.title) else f'**flt: {rule.filter}**\n'
+                                if 'd' in format_string:
+                                    donor_info = f'**{rule.donor_name}** id:{rule.donor_id}\n'
+                                if 's' in format_string:
+                                    sender_info = f'**{firstname} {lastname}** {username} id:{sender_id}\n'
+
+                                if title_info or donor_info or sender_info:
+                                    message_body += f'{title_info}{donor_info}{sender_info}' + \
+                                                    f'@t.me/c/{event.message.peer_id.channel_id}/{event.message.id}\n' \
+                                                    f'----------\n'
+
+                                if 'm' not in format_string:
+                                    await tg_client.send_message(rule.recip_id, message_body)
+                                else:
+                                    if not Config.enable_forbidden_content:
+                                        if event.message.chat and event.message.chat.noforwards:
+                                            message_body += f"Forwards restricted saving content from chat " \
+                                                            f"{event.chat_id} is forbidden."
+                                            await tg_client.send_message(rule.recip_id, message_body)
+                                            continue
+                                    message_body += event.message.text
+                                    event.message.text = message_body
+                                    await tg_client.send_message(rule.recip_id, event.message)
+                                    # measure_time(event.message.peer_id.channel_id, event.message.id)
+
+                        # Это просто пример как обрабатывать ошибки telethon
+                        # except (errors.SessionExpiredError, errors.SessionRevokedError):
+                        #         self._logger.critical(
+                        #             "The user's session has expired, "
+                        #             "try to get a new session key (run login.py)"
+                        #         )
+                        except Exception as e:
+                            await tg_client.send_message(Config.app_channel_id,
+                                                         f"{'Error!'} \n{str(e)}\n"
+                                                         f"{rule.title}\n"
+                                                         f"R: {rule.recip_id}\n"
+                                                         f"D: {rule.donor_id}\n"
+                                                         f"@t.me/c/{event.message.peer_id.channel_id}/{event.message.id}\n")
+                        finally:
+                            continue
+                    else:
+                        title_info = ''
+                        donor_info = ''
+                        message_body = ''
+                        msg_link = ''
+                        try:
+                            if not check_black_list(event.message.text, rule.black_list):
+                                continue
+                            if not check_or_list(event.message.text, rule.or_list):
+                                continue
+                            if not check_for_and(event.message.text, rule.and_list):
+                                continue
+
+                            # check filter
+                            if check_filter(event.message.text, rule.filter):
+                                format_string = "m" if len(rule.format) == 0 else rule.format.lower()
+                                if 't' in format_string:
+                                    title_info = f'**{rule.title}**\n' if len(
+                                        rule.title) else f'**flt: {rule.filter}**\n'
+                                if 'd' in format_string:
+                                    donor_info = f'**{rule.donor_name}** id:{rule.donor_id}\n'
+
+                                if title_info or donor_info:
+                                    message_body += f'{title_info}{donor_info}'
+                                    if event.is_private:
+                                        msg_link += f'@t.me/c/{event.message.peer_id.user_id}/{event.message.id}\n'
+                                    else:
+                                        msg_link += f'@t.me/c/{event.message.peer_id.channel_id}/{event.message.id}\n'
+
+                                    message_body += msg_link
+                                    message_body += f'----------\n'
+
+                                if 'm' not in format_string:
+                                    await tg_client.send_message(rule.recip_id, message_body)
+                                else:
+                                    if not Config.enable_forbidden_content:
+                                        if event.message.chat and event.message.chat.noforwards:
+                                            message_body += f"Forwards restricted saving content from chat " \
+                                                            f"{event.chat_id} is forbidden."
+                                            await tg_client.send_message(rule.recip_id, message_body)
+                                            continue
+                                    message_body += event.message.text
+                                    event.message.text = message_body
+                                    await tg_client.send_message(rule.recip_id, event.message)
+                                    # measure_time(event.message.peer_id.channel_id, event.message.id)
+
+                        except Exception as e:
+                            await tg_client.send_message(Config.app_channel_id,
+                                                         f"{'Error!'} \n{str(e)}\n"
+                                                         f"{rule.title}\n"
+                                                         f"R: {rule.recip_id}\n"
+                                                         f"D: {rule.donor_id}\n"
+                                                         f"{msg_link}\n")
+                        finally:
+                            continue
+            msg_queue.task_done()
+        except asyncio.QueueEmpty:
+            await asyncio.sleep(0.5)
             continue
-        # print(f'{event.chat_id=} - is active')
-        if rule.donor_id == event.chat_id:
-            if event.is_group:
-                username = ''
-                firstname = ''
-                lastname = ''
-                sender_id = 0
-                is_found = False
 
-                # print(in case of message sent by user, get his properties")
-                if event.message and event.message.sender and type(event.message.sender) == User:
-                    username = event.message.sender.username or ''
-                    firstname = event.message.sender.first_name or ''
-                    lastname = event.message.sender.last_name or ''
-                    sender_id = event.message.sender_id or 0
-                    is_found = False
-                else:
-                    is_found = True
-
-                if rule.sender_id == 0 and rule.sender_uname == '' and \
-                   rule.sender_fname == '' and rule.sender_lname == '':
-                    is_found = True  # just for exclude sender checking
-
-                if not is_found:
-                    # print("lets check sender properties")
-                    is_found = check_user_prop({
-                        "id": sender_id,
-                        "uname": username,
-                        "fname": firstname,
-                        "lname": lastname
-                    }, rule)
-
-                if is_found:
-                    # check black_list, and_list and or_list
-                    if not check_black_list(event.message.text, rule.black_list):
-                        continue
-                    if not check_or_list(event.message.text, rule.or_list):
-                        continue
-                    if not check_for_and(event.message.text, rule.and_list):
-                        continue
-
-                    # check filter now
-                    is_found = check_filter(event.message.text, rule.filter)
-                try:
-                    if is_found:
-                        if len(username) > 0:
-                            username = username if username.startswith("@") else f"@{username}"
-
-                        format_string = "m" if len(rule.format) == 0 else rule.format.lower()
-                        title_info = ''
-                        donor_info = ''
-                        sender_info = ''
-                        message_body = ''
-
-                        if 't' in format_string:
-                            title_info = f'**{rule.title}**\n' if len(rule.title) else f'**flt: {rule.filter}**\n'
-                        if 'd' in format_string:
-                            donor_info = f'**{rule.donor_name}** id:{rule.donor_id}\n'
-                        if 's' in format_string:
-                            sender_info = f'**{firstname} {lastname}** {username} id:{sender_id}\n'
-
-                        if title_info or donor_info or sender_info:
-                            message_body += f'{title_info}{donor_info}{sender_info}' + \
-                                            f'@t.me/c/{event.message.peer_id.channel_id}/{event.message.id}\n' \
-                                            f'----------\n'
-
-                        if 'm' not in format_string:
-                            await tg_client.send_message(rule.recip_id, message_body)
-                        else:
-                            if not Config.enable_forbidden_content:
-                                if event.message.chat and event.message.chat.noforwards:
-                                    message_body += f"Forwards restricted saving content from chat " \
-                                                    f"{event.chat_id} is forbidden."
-                                    await tg_client.send_message(rule.recip_id, message_body)
-                                    continue
-                            message_body += event.message.text
-                            event.message.text = message_body
-                            await tg_client.send_message(rule.recip_id, event.message)
-                            # measure_time(event.message.peer_id.channel_id, event.message.id)
-
-                # Это просто пример как обрабатывать ошибки telethon
-                # except (errors.SessionExpiredError, errors.SessionRevokedError):
-                #         self._logger.critical(
-                #             "The user's session has expired, "
-                #             "try to get a new session key (run login.py)"
-                #         )
-                except Exception as e:
-                    await tg_client.send_message(Config.app_channel_id,
-                                                 f"{'Error!'} \n{str(e)}\n"
-                                                 f"{rule.title}\n"
-                                                 f"R: {rule.recip_id}\n"
-                                                 f"D: {rule.donor_id}")
-                finally:
-                    continue
-            else:
-                try:
-                    if not check_black_list(event.message.text, rule.black_list):
-                        continue
-                    if not check_or_list(event.message.text, rule.or_list):
-                        continue
-                    if not check_for_and(event.message.text, rule.and_list):
-                        continue
-
-                    # check filter
-                    if check_filter(event.message.text, rule.filter):
-                        # format_parts = sender["repost_format"].lower().split(" ")
-                        title_info = ''
-                        donor_info = ''
-                        message_body = ''
-
-                        format_string = "m" if len(rule.format) == 0 else rule.format.lower()
-                        if 't' in format_string:
-                            title_info = f'**{rule.title}**\n' if len(rule.title) else f'**flt: {rule.filter}**\n'
-                        if 'd' in format_string:
-                            donor_info = f'**{rule.donor_name}** id:{rule.donor_id}\n'
-
-                        if title_info or donor_info:
-                            message_body += f'{title_info}{donor_info}'
-                            if event.is_private:
-                                message_body += f'@t.me/c/{event.message.peer_id.user_id}/{event.message.id}\n'
-                            else:
-                                message_body += f'@t.me/c/{event.message.peer_id.channel_id}/{event.message.id}\n'
-                            message_body += f'----------\n'
-
-                        if 'm' not in format_string:
-                            await tg_client.send_message(rule.recip_id, message_body)
-                        else:
-                            if not Config.enable_forbidden_content:
-                                if event.message.chat and event.message.chat.noforwards:
-                                    message_body += f"Forwards restricted saving content from chat " \
-                                                    f"{event.chat_id} is forbidden."
-                                    await tg_client.send_message(rule.recip_id, message_body)
-                                    continue
-                            message_body += event.message.text
-                            event.message.text = message_body
-                            await tg_client.send_message(rule.recip_id, event.message)
-                            # measure_time(event.message.peer_id.channel_id, event.message.id)
-
-                except Exception as e:
-                    await tg_client.send_message(Config.app_channel_id,
-                                                 f"{'Error!'} \n{str(e)}\n{rule.recip_id}")
-                finally:
-                    continue
 
 if __name__ == '__main__':
     with tg_client:
