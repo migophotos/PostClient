@@ -1,3 +1,4 @@
+import datetime
 from typing import Any
 
 from telethon import TelegramClient, events, errors
@@ -14,7 +15,7 @@ from shared.filter_by_parameters import check_filter, flt
 
 # logging.basicConfig(level=logging.ERROR)
 logging.basicConfig(
-    level=logging.WARNING,
+    level=logging.INFO,
     format="%(asctime)s - [%(levelname)s] -  %(name)s - (%(filename)s).%(funcName)s(%(lineno)d) - %(message)s"
 )
 tg_client = TelegramClient(Config.app_name, Config.api_id, Config.api_hash)
@@ -28,36 +29,33 @@ rules_list = []
 async def reload_filters():
     rules_list.clear()
     rules = await db.get_rules_table().get_rules()
-    for rule in rules:
-        rules_list.append(rule)
-    res = len(rules_list)
-
-    # await tg_client.get_me()
-    if not res:
+    if len(rules) == 0:
         await tg_client.send_message(Config.app_channel_id,
                                      "Rules not found. Fill the CSV file and upload it to my bot!\n\n"
                                      "I'm ready to work.")
         return False
-    else:
 
-        await tg_client.send_message(Config.app_channel_id, f"**{len(rules_list)} rules data loaded:**\n\n")
-        rules_text = ''
-        for index, rule in enumerate(rules_list):
-            if (index + 1) % 5:
-                rules_text += f'**{index + 1}**. {RulesTable.serialize(rule)}\n\n'
-            else:
-                rules_text += f'**{index + 1}**. {RulesTable.serialize(rule)}\n\n'
-                # print each 10 rules
-                await tg_client.send_message(Config.app_channel_id, rules_text)
-                rules_text = ''
+    for rule in rules:
+        rules_list.append(rule)
 
-        if len(rules_text):
-            # print last group of rules
+    await tg_client.send_message(Config.app_channel_id, f"**{len(rules_list)} rules data loaded:**\n\n")
+    rules_text = ''
+    for index, rule in enumerate(rules_list):
+        if (index + 1) % 5:
+            rules_text += f'**{index + 1}**. {RulesTable.serialize(rule)}\n\n'
+        else:
+            rules_text += f'**{index + 1}**. {RulesTable.serialize(rule)}\n\n'
+            # print each 10 rules
             await tg_client.send_message(Config.app_channel_id, rules_text)
+            rules_text = ''
 
-        rules_text = "**I'm ready to work.**\nSend me a 'help' command for information about control commands."
+    if len(rules_text):
+        # print last group of rules
         await tg_client.send_message(Config.app_channel_id, rules_text)
-        return res
+
+    rules_text = "**I'm ready to work.**\nSend me a 'help' command for information about control commands."
+    await tg_client.send_message(Config.app_channel_id, rules_text)
+    return len(rules_list)
 
 
 async def main():
@@ -115,6 +113,36 @@ def check_for_and(text: str, and_list: str):
             if len(flt(strings, [and_word])) == 0:
                 return False
     return True
+
+
+def check_user_prop(sender_prop, rule):
+    if rule.sender_id and rule.sender_id == sender_prop["id"]:
+        return True
+    if rule.sender_uname and rule.sender_uname == sender_prop["uname"]:
+        return True
+
+    if rule.sender_fname and rule.sender_lname:
+        if rule.sender_fname == sender_prop["fname"] and rule.sender_lname == sender_prop["lname"]:
+            return True
+    if rule.sender_fname and rule.sender_fname == sender_prop["fname"]:
+        return True
+    if rule.sender_lname and rule.sender_lname == sender_prop["lname"]:
+        return True
+
+    return False
+
+
+times_map = {}
+
+
+def measure_time(ch_id, msg_id):
+    msg_key = f'{ch_id}/{msg_id}'
+    if not times_map.get(msg_key):
+        times_map[msg_key] = {"in": datetime.datetime.now()}
+    else:
+        times_map[msg_key]["out"] = datetime.datetime.now()
+        print(f'{msg_key} - in: {times_map[msg_key]["in"]} out: {times_map[msg_key]["out"]}')
+        times_map.pop(msg_key)
 
 
 @tg_client.on(events.NewMessage())
@@ -205,6 +233,9 @@ async def normal_handler(event):
 
         return False
     # now, lets filter all other messages
+    # print(f"{event.message.peer_id.channel_id}/{event.message.id} msg: {event.message.text}")
+    # measure_time(event.message.peer_id.channel_id, event.message.id)
+
     for rule in rules_list:
         # print(f'{event.chat_id=}')
         if rule.status != 'active':
@@ -217,32 +248,30 @@ async def normal_handler(event):
                 lastname = ''
                 sender_id = 0
                 is_found = False
+
+                # print(in case of message sent by user, get his properties")
                 if event.message and event.message.sender and type(event.message.sender) == User:
-                    username = event.message.sender.username if event.message.sender.username else ''
-                    firstname = event.message.sender.first_name if event.message.sender.first_name else ''
-                    lastname = event.message.sender.last_name if event.message.sender.last_name else ''
+                    username = event.message.sender.username or ''
+                    firstname = event.message.sender.first_name or ''
+                    lastname = event.message.sender.last_name or ''
                     sender_id = event.message.sender_id or 0
                     is_found = False
                 else:
-                    # print("WARNING: event.message.sender not found")
                     is_found = True
-                    # continue
 
                 if rule.sender_id == 0 and rule.sender_uname == '' and \
                    rule.sender_fname == '' and rule.sender_lname == '':
                     is_found = True  # just for exclude sender checking
-                    # print("no sender properties, lets check the filter now")
+
                 if not is_found:
                     # print("lets check sender properties")
-                    if event.message.sender_id == rule.sender_id:
-                        is_found = True
-                    else:
-                        if username and username == rule.sender_uname:
-                            is_found = True
-                        if firstname and firstname == rule.sender_fname:
-                            is_found = True
-                        if lastname and lastname == rule.sender_lname:
-                            is_found = True
+                    is_found = check_user_prop({
+                        "id": sender_id,
+                        "uname": username,
+                        "fname": firstname,
+                        "lname": lastname
+                    }, rule)
+
                 if is_found:
                     # check black_list, and_list and or_list
                     if not check_black_list(event.message.text, rule.black_list):
@@ -289,6 +318,7 @@ async def normal_handler(event):
                             message_body += event.message.text
                             event.message.text = message_body
                             await tg_client.send_message(rule.recip_id, event.message)
+                            # measure_time(event.message.peer_id.channel_id, event.message.id)
 
                 # Это просто пример как обрабатывать ошибки telethon
                 # except (errors.SessionExpiredError, errors.SessionRevokedError):
@@ -346,6 +376,7 @@ async def normal_handler(event):
                             message_body += event.message.text
                             event.message.text = message_body
                             await tg_client.send_message(rule.recip_id, event.message)
+                            # measure_time(event.message.peer_id.channel_id, event.message.id)
 
                 except Exception as e:
                     await tg_client.send_message(Config.app_channel_id,
