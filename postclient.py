@@ -158,13 +158,13 @@ async def normal_handler(event):
         if text == 'help':
             help_text = f"**Hello {Config.owner_name}!**\n" \
                         f"You can use the following commands to control:\n\n"\
-                        f"cmd:my dialogs - show all the dialogs/conversations that you are part of;\n\n" \
-                        f"cmd:export rules - export rules definition into CSV file;\n\n" \
-                        f"cmd:import rules - import rules CSV file into database;\n\n" \
-                        f"cmd:restart reload - reload rules from database;\n\n"
+                        f"dialogs - show all the dialogs/conversations that you are part of;\n\n" \
+                        f"export - export rules definition into CSV file;\n\n" \
+                        f"import - import rules CSV file into database;\n\n" \
+                        f"reload - reload rules from database;\n\n"
             await tg_client.send_message(Config.app_channel_id, help_text)
             return True
-        if text == 'cmd:mydialogs':
+        if text == 'dialogs':
             # export all the dialogs/conversations that you are part of:
             channels = []
             groups = []
@@ -208,10 +208,10 @@ async def normal_handler(event):
             if len(my_dialogs):
                 await tg_client.send_message(Config.app_channel_id, my_dialogs)
             return True
-        if text == 'cmd:exportrules':
+        if text == 'export':
             await cmd_export_rules(db, tg_client)
             return True
-        if text == 'cmd:importrules':
+        if text == 'import':
             current_state["wait_for_rules_csv"] = True
             await tg_client.send_message(Config.app_channel_id, f"**Hello {Config.owner_name}!**\nUpload CSV file with "
                                                                 f"new rules here and I'll import it into the database.")
@@ -231,7 +231,7 @@ async def normal_handler(event):
                                                                     "then you must use the command: cmd:import rules")
                 return False
 
-        if event.message.text == 'cmd:restart reload':
+        if event.message.text == 'reload':
             # in any case reload filters from database
             return await reload_filters()
 
