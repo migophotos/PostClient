@@ -360,8 +360,8 @@ async def consumer():
                                                     f'----------\n'
 
                                 if 'm' not in format_string:
-                                    await tg_client.send_message(rule.recip_id, message_body)
                                     event_state.set_event_state()
+                                    await tg_client.send_message(rule.recip_id, message_body)
                                 else:
                                     if not Config.enable_forbidden_content:
                                         if event.message.chat and event.message.chat.noforwards:
@@ -371,8 +371,8 @@ async def consumer():
                                             continue
                                     message_body += event.message.text
                                     event.message.text = message_body
-                                    await tg_client.send_message(rule.recip_id, event.message)
                                     event_state.set_event_state()
+                                    await tg_client.send_message(rule.recip_id, event.message)
 
                                     # measure_time(event.message.peer_id.channel_id, event.message.id)
 
@@ -424,9 +424,8 @@ async def consumer():
                                     message_body += f'----------\n'
 
                                 if 'm' not in format_string:
-                                    await tg_client.send_message(rule.recip_id, message_body)
                                     event_state.set_event_state()
-
+                                    await tg_client.send_message(rule.recip_id, message_body)
                                 else:
                                     if not Config.enable_forbidden_content:
                                         if event.message.chat and event.message.chat.noforwards:
@@ -436,8 +435,8 @@ async def consumer():
                                             continue
                                     message_body += event.message.text
                                     event.message.text = message_body
-                                    await tg_client.send_message(rule.recip_id, event.message)
                                     event_state.set_event_state()
+                                    await tg_client.send_message(rule.recip_id, event.message)
 
                                     # measure_time(event.message.peer_id.channel_id, event.message.id)
 
