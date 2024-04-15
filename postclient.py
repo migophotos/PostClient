@@ -24,8 +24,21 @@ db = Database(db_file=Config.database)
 current_state: dict[str, Any] = {}
 
 rules_list = []
+trash_bin = {"name": '', 'id': 0, "status": ''}
 
 msg_queue = asyncio.Queue()
+
+
+class EventState:
+    def __init__(self, event):
+        self.event = event
+        self.state = False
+
+    def set_event_state(self):
+        self.state = True
+
+    def get_event_state(self):
+        return self.state
 
 
 async def reload_filters():
@@ -38,6 +51,12 @@ async def reload_filters():
         return False
 
     for rule in rules:
+        if rule.recip_name == '__trash_bin__':
+            trash_bin["name"] = rule.recip_name
+            trash_bin["id"] = rule.recip_id
+            trash_bin["status"] = rule.status
+            continue
+
         rules_list.append(rule)
 
     await tg_client.send_message(Config.app_channel_id, f"**{len(rules_list)} rules data loaded:**\n\n")
@@ -161,8 +180,18 @@ async def normal_handler(event):
                         f"dialogs - show all the dialogs/conversations that you are part of;\n\n" \
                         f"export - export rules definition into CSV file;\n\n" \
                         f"import - import rules CSV file into database;\n\n" \
-                        f"reload - reload rules from database;\n\n"
+                        f"reload - reload rules from database;\n\n" \
+                        f"trash - enable the trash can function (all filtered messages will be collected here;\n\n" \
+                        f"notrash - disable trash bin function"
             await tg_client.send_message(Config.app_channel_id, help_text)
+            return True
+        if text == 'trash':
+            trash_bin['status'] = 'active'
+            await tg_client.send_message(Config.app_channel_id, f"{trash_bin['name']} enabled")
+            return True
+        if text == 'notrash':
+            trash_bin['status'] = ''
+            await tg_client.send_message(Config.app_channel_id, f"{trash_bin['name']} disabled")
             return True
         if text == 'dialogs':
             # export all the dialogs/conversations that you are part of:
@@ -178,7 +207,6 @@ async def normal_handler(event):
                     users.append(f"**{len(users)+1}**. user: {dialog.name}\t id: **{dialog.id}**\n")
 
             # print dialogs list
-            # await tg_client.send_message(Config.app_channel_id, f"+++ **Channels** +++\n")
             my_dialogs = ''
             for index, item in enumerate(channels):
                 my_dialogs += item
@@ -198,7 +226,6 @@ async def normal_handler(event):
             if len(my_dialogs):
                 await tg_client.send_message(Config.app_channel_id, my_dialogs)
 
-            # await tg_client.send_message(Config.app_channel_id, f"\n+++ **Users** +++\n")
             my_dialogs = ''
             for index, item in enumerate(users):
                 my_dialogs += item
@@ -240,13 +267,27 @@ async def normal_handler(event):
     # print(f"{event.message.peer_id.channel_id}/{event.message.id} msg: {event.message.text}")
     # measure_time(event.message.peer_id.channel_id, event.message.id)
 
-    await msg_queue.put(event)
+    # all the main work of checking messages happens in the function consumer
+    await msg_queue.put(EventState(event))
+
+
+async def put_message_to_trash_bin(event):
+    if trash_bin['status'] == 'active' and trash_bin['id']:
+        msg_link = ''
+        if event.is_private:
+            msg_link += f'@t.me/c/{event.message.peer_id.user_id}/{event.message.id}\n'
+        else:
+            msg_link += f'@t.me/c/{event.message.peer_id.channel_id}/{event.message.id}\n'
+
+        event.message.text = msg_link + event.message.text
+        await tg_client.send_message(trash_bin['id'], event.message)
 
 
 async def consumer():
     while True:
         try:
-            event = msg_queue.get_nowait()
+            event_state = msg_queue.get_nowait()
+            event = event_state.event
             for rule in rules_list:
                 # print(f'{event.chat_id=}')
                 if rule.status != 'active':
@@ -320,6 +361,7 @@ async def consumer():
 
                                 if 'm' not in format_string:
                                     await tg_client.send_message(rule.recip_id, message_body)
+                                    event_state.set_event_state()
                                 else:
                                     if not Config.enable_forbidden_content:
                                         if event.message.chat and event.message.chat.noforwards:
@@ -330,6 +372,8 @@ async def consumer():
                                     message_body += event.message.text
                                     event.message.text = message_body
                                     await tg_client.send_message(rule.recip_id, event.message)
+                                    event_state.set_event_state()
+
                                     # measure_time(event.message.peer_id.channel_id, event.message.id)
 
                         # Это просто пример как обрабатывать ошибки telethon
@@ -381,6 +425,8 @@ async def consumer():
 
                                 if 'm' not in format_string:
                                     await tg_client.send_message(rule.recip_id, message_body)
+                                    event_state.set_event_state()
+
                                 else:
                                     if not Config.enable_forbidden_content:
                                         if event.message.chat and event.message.chat.noforwards:
@@ -391,6 +437,8 @@ async def consumer():
                                     message_body += event.message.text
                                     event.message.text = message_body
                                     await tg_client.send_message(rule.recip_id, event.message)
+                                    event_state.set_event_state()
+
                                     # measure_time(event.message.peer_id.channel_id, event.message.id)
 
                         except Exception as e:
@@ -402,9 +450,12 @@ async def consumer():
                                                          f"{msg_link}\n")
                         finally:
                             continue
+
+            if not event_state.get_event_state():
+                await put_message_to_trash_bin(event)
             msg_queue.task_done()
         except asyncio.QueueEmpty:
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0)
             continue
 
 

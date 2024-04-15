@@ -63,17 +63,18 @@ async def cmd_import_rules(db: Database, tg_client: TelegramClient, document: Do
         recip_name, recip_id, donor_name, donor_id, sender_fname, sender_lname, sender_uname, \
             sender_id, rule_filter, black_list, and_list, or_list, rule_format, title, status, user_id = row
 
-        if recip_id == '' or donor_id == '':
-            await tg_client.send_message(Config.app_channel_id,
-                                         f'Recipient ID {recip_id} or Donor ID {donor_id} cannot be empty! Skipped')
-            continue
+        if recip_name != '__trash_bin__':
+            if recip_id == '' or donor_id == '':
+                await tg_client.send_message(Config.app_channel_id,
+                                             f'Recipient ID {recip_id} or Donor ID {donor_id} cannot be empty! Skipped')
+                continue
 
-        # Very Important check: the recipient channel link must not be the same as the donor channel link,
-        # excluding link to special channel, which can only be created by system administrator!
-        if recip_id == donor_id:
-            await tg_client.send_message(Config.app_channel_id,
-                f'Skipped rule: {recip_id} == {donor_id} - matching input and output channels are prohibited!')
-            continue
+            # Very Important check: the recipient channel link must not be the same as the donor channel link,
+            # excluding link to special channel, which can only be created by system administrator!
+            if recip_id == donor_id:
+                await tg_client.send_message(Config.app_channel_id,
+                    f'Skipped rule: {recip_id} == {donor_id} - matching input and output channels are prohibited!')
+                continue
 
         # check and convert str to int
         if recip_id.startswith('100'):
@@ -84,7 +85,7 @@ async def cmd_import_rules(db: Database, tg_client: TelegramClient, document: Do
         if donor_id.startswith('100'):
             donor_id = int(f'-{donor_id}') if not donor_id.startswith('-') else int(donor_id)
         else:
-            donor_id = int(donor_id)
+            donor_id = int(donor_id) if donor_id else 0
 
         sender_id = int(sender_id) if sender_id.isdigit() else 0
         user_id = int(user_id) if user_id.isdigit() else 0
