@@ -52,13 +52,15 @@ async def reload_filters():
         return False
 
     for rule in rules:
+        # store all recipient channels in list array for to skip later when filtering messages
+        recip_list.append(rule.recip_id)
+
         if rule.recip_name == '__trash_bin__':
             trash_bin["name"] = rule.recip_name
             trash_bin["id"] = rule.recip_id
             trash_bin["status"] = rule.status
             continue
 
-        recip_list.append(rule.recip_id)
         rules_list.append(rule)
 
     await tg_client.send_message(Config.app_channel_id, f"**{len(rules_list)} rules data loaded:**\n\n")
