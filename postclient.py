@@ -33,13 +33,20 @@ msg_queue = asyncio.Queue()
 class EventState:
     def __init__(self, event):
         self.event = event
-        self.state = False
+        self.state: bool = False
+        self.reason: str = ''
 
     def set_event_state(self):
         self.state = True
 
-    def get_event_state(self):
+    def set_reason(self, reason: str):
+        self.reason = reason
+
+    def get_event_state(self) -> bool:
         return self.state
+
+    def get_reason(self) -> str:
+        return self.reason
 
 
 async def reload_filters():
@@ -279,9 +286,9 @@ async def normal_handler(event):
     await msg_queue.put(EventState(event))
 
 
-async def put_message_to_trash_bin(event):
+async def put_message_to_trash_bin(event, reason: str):
     if trash_bin['status'] == 'active' and trash_bin['id']:
-        msg_link = ''
+        msg_link = f'reason: {reason}\n'
         if event.is_private:
             msg_link += f'@t.me/c/{event.message.peer_id.user_id}/{event.message.id}\n'
         else:
@@ -294,7 +301,8 @@ async def put_message_to_trash_bin(event):
 async def consumer():
     while True:
         try:
-            event_state = msg_queue.get_nowait()
+            event_state: EventState = msg_queue.get_nowait()
+            event_state.set_reason('unfiltered')
             event = event_state.event
             for rule in rules_list:
                 # print(f'{event.chat_id=}')
@@ -302,6 +310,7 @@ async def consumer():
                     continue
                 # print(f'{event.chat_id=} - is active')
                 if rule.donor_id == event.chat_id:
+                    event_state.set_reason('')
                     if event.is_group:
                         username = ''
                         firstname = ''
@@ -331,18 +340,25 @@ async def consumer():
                                 "fname": firstname,
                                 "lname": lastname
                             }, rule)
+                            if not is_found:
+                                event_state.set_reason(f'sender: id:{sender_id} un:{username} fn:{firstname} ln:{lastname}')
 
                         if is_found:
                             # check black_list, and_list and or_list
                             if not check_black_list(event.message.text, rule.black_list):
+                                event_state.set_reason(f'black_list: {rule.black_list}')
                                 continue
                             if not check_or_list(event.message.text, rule.or_list):
+                                event_state.set_reason(f'or_list: {rule.or_list}')
                                 continue
                             if not check_for_and(event.message.text, rule.and_list):
+                                event_state.set_reason(f'and_list: {rule.and_list}')
                                 continue
 
                             # check filter now
                             is_found = check_filter(event.message.text, rule.filter)
+                            if not is_found:
+                                event_state.set_reason(f'flt: {rule.filter}')
                         try:
                             if is_found:
                                 if len(username) > 0:
@@ -405,11 +421,15 @@ async def consumer():
                         message_body = ''
                         msg_link = ''
                         try:
+                            # check black_list, and_list and or_list
                             if not check_black_list(event.message.text, rule.black_list):
+                                event_state.set_reason(f'black_list: {rule.black_list}')
                                 continue
                             if not check_or_list(event.message.text, rule.or_list):
+                                event_state.set_reason(f'or_list: {rule.or_list}')
                                 continue
                             if not check_for_and(event.message.text, rule.and_list):
+                                event_state.set_reason(f'and_list: {rule.and_list}')
                                 continue
 
                             # check filter
@@ -447,6 +467,8 @@ async def consumer():
                                     await tg_client.send_message(rule.recip_id, event.message)
 
                                     # measure_time(event.message.peer_id.channel_id, event.message.id)
+                            else:
+                                event_state.set_reason(f'flt: {rule.filter}')
 
                         except Exception as e:
                             await tg_client.send_message(Config.app_channel_id,
@@ -459,7 +481,7 @@ async def consumer():
                             continue
 
             if not event_state.get_event_state():
-                await put_message_to_trash_bin(event)
+                await put_message_to_trash_bin(event, reason=event_state.get_reason())
             msg_queue.task_done()
         except asyncio.QueueEmpty:
             await asyncio.sleep(0)
