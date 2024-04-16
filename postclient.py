@@ -24,6 +24,7 @@ db = Database(db_file=Config.database)
 current_state: dict[str, Any] = {}
 
 rules_list = []
+recip_list = []
 trash_bin = {"name": '', 'id': 0, "status": ''}
 
 msg_queue = asyncio.Queue()
@@ -57,6 +58,7 @@ async def reload_filters():
             trash_bin["status"] = rule.status
             continue
 
+        recip_list.append(rule.recip_id)
         rules_list.append(rule)
 
     await tg_client.send_message(Config.app_channel_id, f"**{len(rules_list)} rules data loaded:**\n\n")
@@ -266,6 +268,10 @@ async def normal_handler(event):
     # now, lets filter all other messages
     # print(f"{event.message.peer_id.channel_id}/{event.message.id} msg: {event.message.text}")
     # measure_time(event.message.peer_id.channel_id, event.message.id)
+
+    # If a message arrives sent to one of the recipients' channels, then such a message should not be processed
+    if event.chat_id in recip_list:
+        return False
 
     # all the main work of checking messages happens in the function consumer
     await msg_queue.put(EventState(event))
