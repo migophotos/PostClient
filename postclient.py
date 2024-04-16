@@ -341,24 +341,24 @@ async def consumer():
                                 "lname": lastname
                             }, rule)
                             if not is_found:
-                                event_state.set_reason(f'sender: id:{sender_id} un:{username} fn:{firstname} ln:{lastname}')
+                                event_state.set_reason(f'donor:{rule.donor_name}\nsender: id:{sender_id} un:{username} fn:{firstname} ln:{lastname}')
 
                         if is_found:
                             # check black_list, and_list and or_list
                             if not check_black_list(event.message.text, rule.black_list):
-                                event_state.set_reason(f'black_list: {rule.black_list}')
+                                event_state.set_reason(f'donor:{rule.donor_name}\nblack_list: {rule.black_list}')
                                 continue
                             if not check_or_list(event.message.text, rule.or_list):
-                                event_state.set_reason(f'or_list: {rule.or_list}')
+                                event_state.set_reason(f'donor:{rule.donor_name}\nor_list: {rule.or_list}')
                                 continue
                             if not check_for_and(event.message.text, rule.and_list):
-                                event_state.set_reason(f'and_list: {rule.and_list}')
+                                event_state.set_reason(f'donor:{rule.donor_name}\nand_list: {rule.and_list}')
                                 continue
 
                             # check filter now
                             is_found = check_filter(event.message.text, rule.filter)
                             if not is_found:
-                                event_state.set_reason(f'flt: {rule.filter}')
+                                event_state.set_reason(f'donor:{rule.donor_name}\nflt: {rule.filter}')
                         try:
                             if is_found:
                                 if len(username) > 0:
@@ -423,13 +423,13 @@ async def consumer():
                         try:
                             # check black_list, and_list and or_list
                             if not check_black_list(event.message.text, rule.black_list):
-                                event_state.set_reason(f'black_list: {rule.black_list}')
+                                event_state.set_reason(f'donor:{rule.donor_name}\nblack_list: {rule.black_list}')
                                 continue
                             if not check_or_list(event.message.text, rule.or_list):
-                                event_state.set_reason(f'or_list: {rule.or_list}')
+                                event_state.set_reason(f'donor:{rule.donor_name}\nor_list: {rule.or_list}')
                                 continue
                             if not check_for_and(event.message.text, rule.and_list):
-                                event_state.set_reason(f'and_list: {rule.and_list}')
+                                event_state.set_reason(f'donor:{rule.donor_name}\nand_list: {rule.and_list}')
                                 continue
 
                             # check filter
@@ -468,7 +468,7 @@ async def consumer():
 
                                     # measure_time(event.message.peer_id.channel_id, event.message.id)
                             else:
-                                event_state.set_reason(f'flt: {rule.filter}')
+                                event_state.set_reason(f'donor:{rule.donor_name}\nflt: {rule.filter}')
 
                         except Exception as e:
                             await tg_client.send_message(Config.app_channel_id,
