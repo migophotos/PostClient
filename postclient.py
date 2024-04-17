@@ -298,6 +298,8 @@ async def normal_handler(event):
     if event.chat_id in recip_list:
         return False
 
+    print(event.chat_id)
+
     # all the main work of checking messages happens in the function consumer
     await msg_queue.put(EventState(event))
 
@@ -521,7 +523,7 @@ async def consumer():
                 await put_message_to_trash_bin(event, ev_state=event_state)
             msg_queue.task_done()
         except asyncio.QueueEmpty:
-            await asyncio.sleep(0)
+            await asyncio.sleep(0.5)
             continue
 
 
