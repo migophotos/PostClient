@@ -39,6 +39,9 @@ class EventState:
     def set_event_state(self):
         self.state = True
 
+    def clear_event_state(self):
+        self.state = False
+
     def set_reason(self, reason: str):
         self.reason = reason
 
@@ -180,6 +183,19 @@ def measure_time(ch_id, msg_id):
         times_map.pop(msg_key)
 
 
+async def put_message_to_trash_bin(event, ev_state: EventState):
+    if trash_bin['status'] == 'active' and trash_bin['id']:
+        msg_link = f'reason: {ev_state.get_reason()}\n'
+        if event.is_private:
+            msg_link += f'@t.me/c/{event.message.peer_id.user_id}/{event.message.id}\n'
+        else:
+            msg_link += f'@t.me/c/{event.message.peer_id.channel_id}/{event.message.id}\n'
+
+        event.message.text = msg_link + event.message.text
+        await tg_client.send_message(trash_bin['id'], event.message)
+        ev_state.set_event_state()
+
+
 @tg_client.on(events.NewMessage())
 async def normal_handler(event):
     # check the commands sent to Config.app_channel
@@ -286,18 +302,6 @@ async def normal_handler(event):
     await msg_queue.put(EventState(event))
 
 
-async def put_message_to_trash_bin(event, reason: str):
-    if trash_bin['status'] == 'active' and trash_bin['id']:
-        msg_link = f'reason: {reason}\n'
-        if event.is_private:
-            msg_link += f'@t.me/c/{event.message.peer_id.user_id}/{event.message.id}\n'
-        else:
-            msg_link += f'@t.me/c/{event.message.peer_id.channel_id}/{event.message.id}\n'
-
-        event.message.text = msg_link + event.message.text
-        await tg_client.send_message(trash_bin['id'], event.message)
-
-
 async def consumer():
     while True:
         try:
@@ -311,6 +315,7 @@ async def consumer():
                 # print(f'{event.chat_id=} - is active')
                 if rule.donor_id == event.chat_id:
                     event_state.set_reason('')
+                    event_state.clear_event_state()
                     if event.is_group:
                         username = ''
                         firstname = ''
@@ -324,16 +329,18 @@ async def consumer():
                             firstname = event.message.sender.first_name or ''
                             lastname = event.message.sender.last_name or ''
                             sender_id = event.message.sender_id or 0
-                            is_found = False
                         else:
-                            is_found = True
-
-                        if rule.sender_id == 0 and rule.sender_uname == '' and \
-                                rule.sender_fname == '' and rule.sender_lname == '':
-                            is_found = True  # just for exclude sender checking
+                            is_found = True  # current message doesn't contain user information, so set flag the,
+                            # to skip sender checking
 
                         if not is_found:
-                            # print("lets check sender properties")
+                            if rule.sender_id == 0 and rule.sender_uname == '' and \
+                                    rule.sender_fname == '' and rule.sender_lname == '':
+                                is_found = True  # the current rule doesn't contain user definition, so set the
+                                # flag for exclude sender checking
+
+                        if not is_found:
+                            # lets check sender properties
                             is_found = check_user_prop({
                                 "id": sender_id,
                                 "uname": username,
@@ -341,24 +348,42 @@ async def consumer():
                                 "lname": lastname
                             }, rule)
                             if not is_found:
-                                event_state.set_reason(f'donor:{rule.donor_name}\nsender: id:{sender_id} un:{username} fn:{firstname} ln:{lastname}')
+                                event_state.set_reason(f'donor:{rule.donor_name}\n'
+                                                       f'Specified sender not found.\n'
+                                                       f'sender: id:{sender_id} un:{username} '
+                                                       f'fn:{firstname} ln:{lastname}')
+                                await put_message_to_trash_bin(event, ev_state=event_state)
+                                continue
 
                         if is_found:
                             # check black_list, and_list and or_list
                             if not check_black_list(event.message.text, rule.black_list):
-                                event_state.set_reason(f'donor:{rule.donor_name}\nblack_list: {rule.black_list}')
+                                event_state.set_reason(f"donor:{rule.donor_name}\n"
+                                                       f"This message contains word from \n"
+                                                       f"'Black list': {rule.black_list}")
+                                await put_message_to_trash_bin(event, ev_state=event_state)
                                 continue
                             if not check_or_list(event.message.text, rule.or_list):
-                                event_state.set_reason(f'donor:{rule.donor_name}\nor_list: {rule.or_list}')
+                                event_state.set_reason(f"donor:{rule.donor_name}\n"
+                                                       f"This message doesn't contain any word from \n"
+                                                       f"'OR list': {rule.or_list}")
+                                await put_message_to_trash_bin(event, ev_state=event_state)
                                 continue
                             if not check_for_and(event.message.text, rule.and_list):
-                                event_state.set_reason(f'donor:{rule.donor_name}\nand_list: {rule.and_list}')
+                                event_state.set_reason(f"donor:{rule.donor_name}\n"
+                                                       f"This message doesn't contain all words from \n"
+                                                       f"'AND list': {rule.and_list}")
+                                await put_message_to_trash_bin(event, ev_state=event_state)
                                 continue
 
                             # check filter now
                             is_found = check_filter(event.message.text, rule.filter)
                             if not is_found:
-                                event_state.set_reason(f'donor:{rule.donor_name}\nflt: {rule.filter}')
+                                event_state.set_reason(f"donor:{rule.donor_name}\n"
+                                                       f"The text of this message does not match the specified \n"
+                                                       f"Filter: {rule.filter}")
+                                await put_message_to_trash_bin(event, ev_state=event_state)
+                                continue
                         try:
                             if is_found:
                                 if len(username) > 0:
@@ -423,13 +448,22 @@ async def consumer():
                         try:
                             # check black_list, and_list and or_list
                             if not check_black_list(event.message.text, rule.black_list):
-                                event_state.set_reason(f'donor:{rule.donor_name}\nblack_list: {rule.black_list}')
+                                event_state.set_reason(f"donor:{rule.donor_name}\n"
+                                                       f"This message contains word from \n"
+                                                       f"'Black list': {rule.black_list}")
+                                await put_message_to_trash_bin(event, ev_state=event_state)
                                 continue
                             if not check_or_list(event.message.text, rule.or_list):
-                                event_state.set_reason(f'donor:{rule.donor_name}\nor_list: {rule.or_list}')
+                                event_state.set_reason(f"donor:{rule.donor_name}\n"
+                                                       f"This message doesn't contain any word from \n"
+                                                       f"'OR list': {rule.or_list}")
+                                await put_message_to_trash_bin(event, ev_state=event_state)
                                 continue
                             if not check_for_and(event.message.text, rule.and_list):
-                                event_state.set_reason(f'donor:{rule.donor_name}\nand_list: {rule.and_list}')
+                                event_state.set_reason(f"donor:{rule.donor_name}\n"
+                                                       f"This message doesn't contain all words from \n"
+                                                       f"'AND list': {rule.and_list}")
+                                await put_message_to_trash_bin(event, ev_state=event_state)
                                 continue
 
                             # check filter
@@ -468,7 +502,10 @@ async def consumer():
 
                                     # measure_time(event.message.peer_id.channel_id, event.message.id)
                             else:
-                                event_state.set_reason(f'donor:{rule.donor_name}\nflt: {rule.filter}')
+                                event_state.set_reason(f"donor:{rule.donor_name}\n"
+                                                       f"The text of this message does not match the specified \n"
+                                                       f"Filter: {rule.filter}")
+                                await put_message_to_trash_bin(event, ev_state=event_state)
 
                         except Exception as e:
                             await tg_client.send_message(Config.app_channel_id,
@@ -481,7 +518,7 @@ async def consumer():
                             continue
 
             if not event_state.get_event_state():
-                await put_message_to_trash_bin(event, reason=event_state.get_reason())
+                await put_message_to_trash_bin(event, ev_state=event_state)
             msg_queue.task_done()
         except asyncio.QueueEmpty:
             await asyncio.sleep(0)
