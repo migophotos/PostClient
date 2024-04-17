@@ -470,6 +470,11 @@ async def consumer():
 
                             # check filter
                             if check_filter(event.message.text, rule.filter):
+                                if event.is_private:
+                                    msg_link += f'@t.me/c/{event.message.peer_id.user_id}/{event.message.id}\n'
+                                else:
+                                    msg_link += f'@t.me/c/{event.message.peer_id.channel_id}/{event.message.id}\n'
+
                                 format_string = "m" if len(rule.format) == 0 else rule.format.lower()
                                 if 't' in format_string:
                                     title_info = f'**{rule.title}**\n' if len(
@@ -479,10 +484,6 @@ async def consumer():
 
                                 if title_info or donor_info:
                                     message_body += f'{title_info}{donor_info}'
-                                    if event.is_private:
-                                        msg_link += f'@t.me/c/{event.message.peer_id.user_id}/{event.message.id}\n'
-                                    else:
-                                        msg_link += f'@t.me/c/{event.message.peer_id.channel_id}/{event.message.id}\n'
 
                                     message_body += msg_link
                                     message_body += f'----------\n'
