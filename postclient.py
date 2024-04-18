@@ -99,7 +99,7 @@ async def main():
     await reload_filters()
 
     # start the consumer
-    _ = asyncio.create_task(consumer())
+    # _ = asyncio.create_task(consumer())
     await tg_client.run_until_disconnected()
 
 
@@ -300,10 +300,233 @@ async def normal_handler(event):
 
     print(event.chat_id)
 
-    # all the main work of checking messages happens in the function consumer
-    await msg_queue.put(EventState(event))
+    # # all the main work of checking messages happens in the function consumer
+    # await msg_queue.put(EventState(event))
+    await process_msg(EventState(event))
 
 
+async def process_msg(event_state: EventState):
+    event_state.set_reason('unfiltered')
+    event = event_state.event
+    for rule in rules_list:
+        # print(f'{event.chat_id=}')
+        if rule.status != 'active':
+            continue
+        # print(f'{event.chat_id=} - is active')
+        chat = await event.get_input_chat()
+        sndr = await event.get_sender()
+        btns = await event.get_buttons()
+
+        if rule.donor_id == event.chat_id:
+            event_state.set_reason('')
+            event_state.clear_event_state()
+            if event.is_group:
+                username = ''
+                firstname = ''
+                lastname = ''
+                sender_id = 0
+                is_found = False
+
+                # print(in case of message sent by user, get his properties")
+                if event.message and event.message.sender and type(event.message.sender) == User:
+                    username = event.message.sender.username or ''
+                    firstname = event.message.sender.first_name or ''
+                    lastname = event.message.sender.last_name or ''
+                    sender_id = event.message.sender_id or 0
+                else:
+                    is_found = True  # current message doesn't contain user information, so set flag the,
+                    # to skip sender checking
+
+                if not is_found:
+                    if rule.sender_id == 0 and rule.sender_uname == '' and \
+                            rule.sender_fname == '' and rule.sender_lname == '':
+                        is_found = True  # the current rule doesn't contain user definition, so set the
+                        # flag for exclude sender checking
+
+                if not is_found:
+                    # lets check sender properties
+                    is_found = check_user_prop({
+                        "id": sender_id,
+                        "uname": username,
+                        "fname": firstname,
+                        "lname": lastname
+                    }, rule)
+                    if not is_found:
+                        event_state.set_reason(f'donor:{rule.donor_name}\n'
+                                               f'Specified sender not found.\n'
+                                               f'sender: id:{sender_id} un:{username} '
+                                               f'fn:{firstname} ln:{lastname}')
+                        await put_message_to_trash_bin(event, ev_state=event_state)
+                        continue
+
+                if is_found:
+                    # check black_list, and_list and or_list
+                    if not check_black_list(event.message.text, rule.black_list):
+                        event_state.set_reason(f"donor:{rule.donor_name}\n"
+                                               f"This message contains word from \n"
+                                               f"'Black list': {rule.black_list}")
+                        await put_message_to_trash_bin(event, ev_state=event_state)
+                        continue
+                    if not check_or_list(event.message.text, rule.or_list):
+                        event_state.set_reason(f"donor:{rule.donor_name}\n"
+                                               f"This message doesn't contain any word from \n"
+                                               f"'OR list': {rule.or_list}")
+                        await put_message_to_trash_bin(event, ev_state=event_state)
+                        continue
+                    if not check_for_and(event.message.text, rule.and_list):
+                        event_state.set_reason(f"donor:{rule.donor_name}\n"
+                                               f"This message doesn't contain all words from \n"
+                                               f"'AND list': {rule.and_list}")
+                        await put_message_to_trash_bin(event, ev_state=event_state)
+                        continue
+
+                    # check filter now
+                    is_found = check_filter(event.message.text, rule.filter)
+                    if not is_found:
+                        event_state.set_reason(f"donor:{rule.donor_name}\n"
+                                               f"The text of this message does not match the specified \n"
+                                               f"Filter: {rule.filter}")
+                        await put_message_to_trash_bin(event, ev_state=event_state)
+                        continue
+                try:
+                    if is_found:
+                        if len(username) > 0:
+                            username = username if username.startswith("@") else f"@{username}"
+
+                        format_string = "m" if len(rule.format) == 0 else rule.format.lower()
+                        title_info = ''
+                        donor_info = ''
+                        sender_info = ''
+                        message_body = ''
+
+                        if 't' in format_string:
+                            title_info = f'**{rule.title}**\n' if len(
+                                rule.title) else f'**flt: {rule.filter}**\n'
+                        if 'd' in format_string:
+                            donor_info = f'**{rule.donor_name}** id:{rule.donor_id}\n'
+                        if 's' in format_string:
+                            sender_info = f'**{firstname} {lastname}** {username} id:{sender_id}\n'
+
+                        if title_info or donor_info or sender_info:
+                            message_body += f'{title_info}{donor_info}{sender_info}' + \
+                                            f'@t.me/c/{event.message.peer_id.channel_id}/{event.message.id}\n' \
+                                            f'----------\n'
+
+                        if 'm' not in format_string:
+                            event_state.set_event_state()
+                            await tg_client.send_message(rule.recip_id, message_body)
+                        else:
+                            if not Config.enable_forbidden_content:
+                                if event.message.chat and event.message.chat.noforwards:
+                                    message_body += f"Forwards restricted saving content from chat " \
+                                                    f"{event.chat_id} is forbidden."
+                                    await tg_client.send_message(rule.recip_id, message_body)
+                                    continue
+                            message_body += event.message.text
+                            event.message.text = message_body
+                            event_state.set_event_state()
+                            await tg_client.send_message(rule.recip_id, event.message)
+
+                            # measure_time(event.message.peer_id.channel_id, event.message.id)
+
+                # Это просто пример как обрабатывать ошибки telethon
+                # except (errors.SessionExpiredError, errors.SessionRevokedError):
+                #         self._logger.critical(
+                #             "The user's session has expired, "
+                #             "try to get a new session key (run login.py)"
+                #         )
+                except Exception as e:
+                    await tg_client.send_message(Config.app_channel_id,
+                                                 f"{'Error!'} \n{str(e)}\n"
+                                                 f"{rule.title}\n"
+                                                 f"R: {rule.recip_id}\n"
+                                                 f"D: {rule.donor_id}\n"
+                                                 f"@t.me/c/{event.message.peer_id.channel_id}/{event.message.id}\n")
+                finally:
+                    continue
+            else:
+                title_info = ''
+                donor_info = ''
+                message_body = ''
+                msg_link = ''
+                try:
+                    # check black_list, and_list and or_list
+                    if not check_black_list(event.message.text, rule.black_list):
+                        event_state.set_reason(f"donor:{rule.donor_name}\n"
+                                               f"This message contains word from \n"
+                                               f"'Black list': {rule.black_list}")
+                        await put_message_to_trash_bin(event, ev_state=event_state)
+                        continue
+                    if not check_or_list(event.message.text, rule.or_list):
+                        event_state.set_reason(f"donor:{rule.donor_name}\n"
+                                               f"This message doesn't contain any word from \n"
+                                               f"'OR list': {rule.or_list}")
+                        await put_message_to_trash_bin(event, ev_state=event_state)
+                        continue
+                    if not check_for_and(event.message.text, rule.and_list):
+                        event_state.set_reason(f"donor:{rule.donor_name}\n"
+                                               f"This message doesn't contain all words from \n"
+                                               f"'AND list': {rule.and_list}")
+                        await put_message_to_trash_bin(event, ev_state=event_state)
+                        continue
+
+                    if event.is_private:
+                        msg_link += f'@t.me/c/{event.message.peer_id.user_id}/{event.message.id}\n'
+                    else:
+                        msg_link += f'@t.me/c/{event.message.peer_id.channel_id}/{event.message.id}\n'
+
+                    # check filter
+                    if check_filter(event.message.text, rule.filter):
+                        format_string = "m" if len(rule.format) == 0 else rule.format.lower()
+                        if 't' in format_string:
+                            title_info = f'**{rule.title}**\n' if len(
+                                rule.title) else f'**flt: {rule.filter}**\n'
+                        if 'd' in format_string:
+                            donor_info = f'**{rule.donor_name}** id:{rule.donor_id}\n'
+
+                        if title_info or donor_info:
+                            message_body += f'{title_info}{donor_info}'
+
+                            message_body += msg_link
+                            message_body += f'----------\n'
+
+                        if 'm' not in format_string:
+                            event_state.set_event_state()
+                            await tg_client.send_message(rule.recip_id, message_body)
+                        else:
+                            if not Config.enable_forbidden_content:
+                                if event.message.chat and event.message.chat.noforwards:
+                                    message_body += f"Forwards restricted saving content from chat " \
+                                                    f"{event.chat_id} is forbidden."
+                                    await tg_client.send_message(rule.recip_id, message_body)
+                                    continue
+                            message_body += event.message.text
+                            event.message.text = message_body
+                            event_state.set_event_state()
+                            await tg_client.send_message(rule.recip_id, event.message)
+
+                            # measure_time(event.message.peer_id.channel_id, event.message.id)
+                    else:
+                        event_state.set_reason(f"donor:{rule.donor_name}\n"
+                                               f"The text of this message does not match the specified \n"
+                                               f"Filter: {rule.filter}")
+                        await put_message_to_trash_bin(event, ev_state=event_state)
+
+                except Exception as e:
+                    await tg_client.send_message(Config.app_channel_id,
+                                                 f"{'Error!'} \n{str(e)}\n"
+                                                 f"{rule.title}\n"
+                                                 f"R: {rule.recip_id}\n"
+                                                 f"D: {rule.donor_id}\n"
+                                                 f"{msg_link}\n")
+                finally:
+                    continue
+
+    if not event_state.get_event_state():
+        await put_message_to_trash_bin(event, ev_state=event_state)
+
+
+# temporary not in use
 async def consumer():
     while True:
         try:
@@ -315,6 +538,10 @@ async def consumer():
                 if rule.status != 'active':
                     continue
                 # print(f'{event.chat_id=} - is active')
+                # chat = await event.get_input_chat()
+                # sndr = await event.get_sender()
+                # btns = await event.get_buttons()
+
                 if rule.donor_id == event.chat_id:
                     event_state.set_reason('')
                     event_state.clear_event_state()
@@ -468,13 +695,13 @@ async def consumer():
                                 await put_message_to_trash_bin(event, ev_state=event_state)
                                 continue
 
+                            if event.is_private:
+                                msg_link += f'@t.me/c/{event.message.peer_id.user_id}/{event.message.id}\n'
+                            else:
+                                msg_link += f'@t.me/c/{event.message.peer_id.channel_id}/{event.message.id}\n'
+
                             # check filter
                             if check_filter(event.message.text, rule.filter):
-                                if event.is_private:
-                                    msg_link += f'@t.me/c/{event.message.peer_id.user_id}/{event.message.id}\n'
-                                else:
-                                    msg_link += f'@t.me/c/{event.message.peer_id.channel_id}/{event.message.id}\n'
-
                                 format_string = "m" if len(rule.format) == 0 else rule.format.lower()
                                 if 't' in format_string:
                                     title_info = f'**{rule.title}**\n' if len(
@@ -524,7 +751,7 @@ async def consumer():
                 await put_message_to_trash_bin(event, ev_state=event_state)
             msg_queue.task_done()
         except asyncio.QueueEmpty:
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(1)
             continue
 
 
