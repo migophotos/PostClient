@@ -11,7 +11,7 @@ from shared.config import Config
 
 async def cmd_export_rules(db: Database, tg_client: TelegramClient):
     rules = await db.get_rules_table().get_rules()
-
+    trash_bin_found = False
     rows = [
         ["recip_name", "recip_id", "donor_name", "donor_id",
          "sender_fname", "sender_sname", "sender_uname", "sender_id",
@@ -21,17 +21,21 @@ async def cmd_export_rules(db: Database, tg_client: TelegramClient):
     for rule in rules:
         row = [
             rule.recip_name, rule.recip_id, rule.donor_name, rule.donor_id,
-            rule.sender_fname, rule.sender_sname, rule.sender_uname, rule.sender_id,
+            rule.sender_fname, rule.sender_lname, rule.sender_uname, rule.sender_id,
             rule.filter, rule.black_list, rule.and_list, rule.or_list,
             rule.format, rule.title, rule.status, rule.user_id
         ]
+        if not trash_bin_found and rule.title == '__trash_bin__':
+            trash_bin_found = True
         rows.append(row)
+    if not trash_bin_found:
+        rows.append(['', 0, '', 0, '', '', '', 0, '', '', '', '', '', '__trash_bin__', '', Config.owner_id])
     rows.append([
         "Insert filter definitions before this row"
     ])
     try:
         rules_csv_file = "./rules.csv"
-        with open(rules_csv_file, "w", encoding="utf8", newline="\r\n") as csv_file:
+        with open(rules_csv_file, "w", encoding="utf8", newline="\n") as csv_file:
             writer = csv.writer(csv_file)
             writer.writerows(rows)
 

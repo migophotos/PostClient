@@ -62,10 +62,10 @@ async def reload_filters():
         return False
 
     for rule in rules:
-        # store all recipient channels in list array for to skip later when filtering messages
+        # store all recipient channels in list array for skip it's later when filtering messages
         recip_list.append(rule.recip_id)
 
-        if rule.recip_name == '__trash_bin__':
+        if rule.title == '__trash_bin__':
             trash_bin["name"] = rule.recip_name
             trash_bin["id"] = rule.recip_id
             trash_bin["status"] = rule.status
@@ -87,8 +87,12 @@ async def reload_filters():
     if len(rules_text):
         # print last group of rules
         await tg_client.send_message(Config.app_channel_id, rules_text)
-
-    rules_text = "**I'm ready to work.**\nSend me a 'help' command for information about control commands."
+    trash_bin_status = "Trash Bin not initialized"
+    if trash_bin["id"]:
+        trash_bin_status = f"Trash Bin '{trash_bin['name']}' "
+        trash_bin_status += f"{'enabled' if trash_bin['status'] == 'active' else 'disabled'}"
+    rules_text = f"**I'm ready to work.**\n{trash_bin_status}\n" \
+                 f"Send me a 'help' command for information about control commands."
     await tg_client.send_message(Config.app_channel_id, rules_text)
     return len(rules_list)
 
@@ -208,17 +212,34 @@ async def normal_handler(event):
                         f"export - export rules definition into CSV file;\n\n" \
                         f"import - import rules CSV file into database;\n\n" \
                         f"reload - reload rules from database;\n\n" \
-                        f"trash - enable the trash can function (all filtered messages will be collected here;\n\n" \
-                        f"notrash - disable trash bin function"
+                        f"trash - enable the Trash Bin functionality (all unfiltered messages will be " \
+                        f"collected here;\n\n" \
+                        f"notrash - disable trash bin functionality"
             await tg_client.send_message(Config.app_channel_id, help_text)
             return True
         if text == 'trash':
-            trash_bin['status'] = 'active'
-            await tg_client.send_message(Config.app_channel_id, f"{trash_bin['name']} enabled")
+            if trash_bin['id']:
+                trash_bin['status'] = 'active'
+                await tg_client.send_message(Config.app_channel_id, f"{trash_bin['name']} enabled")
+            else:
+                await tg_client.send_message(Config.app_channel_id,
+                                             f"Before using Trash Bin you need to initialize it!\n"
+                                             f"1. Create private channel in Telegram with any name\n"
+                                             f"2. Use  command 'dialogs' to retrieve this channel id\n"
+                                             f"3. Open rules definition CSV-file with Google Sheets, find or append "
+                                             f"the row with name '__trash_bin__' in column 'title' and insert "
+                                             f"the channel name into the column 'recip_name and "
+                                             f"the channel id into the column 'recip_id. Export CSV-file from "
+                                             f"Google Sheet and import it here using command 'import")
             return True
         if text == 'notrash':
-            trash_bin['status'] = ''
-            await tg_client.send_message(Config.app_channel_id, f"{trash_bin['name']} disabled")
+            if trash_bin['id']:
+                trash_bin['status'] = ''
+                await tg_client.send_message(Config.app_channel_id, f"{trash_bin['name']} disabled")
+            else:
+                await tg_client.send_message(Config.app_channel_id, f"Trash Bin not initialized! Use command 'trash' "
+                                                                    f"for getting information about of Trash Bin "
+                                                                    f"initialization.")
             return True
         if text == 'dialogs':
             # export all the dialogs/conversations that you are part of:
@@ -282,7 +303,7 @@ async def normal_handler(event):
             else:
                 await tg_client.send_message(Config.app_channel_id, "Unwanted operation detected. "
                                                                     "If you want to send me a CSV file with new rules, "
-                                                                    "then you must use the command: cmd:import rules")
+                                                                    "then you must use the command: import")
                 return False
 
         if event.message.text == 'reload':
@@ -297,8 +318,6 @@ async def normal_handler(event):
     # If a message arrives sent to one of the recipients' channels, then such a message should not be processed
     if event.chat_id in recip_list:
         return False
-
-    print(event.chat_id)
 
     # # all the main work of checking messages happens in the function consumer
     # await msg_queue.put(EventState(event))
@@ -751,7 +770,7 @@ async def consumer():
                 await put_message_to_trash_bin(event, ev_state=event_state)
             msg_queue.task_done()
         except asyncio.QueueEmpty:
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.5)
             continue
 
 
