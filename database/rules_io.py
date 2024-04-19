@@ -16,20 +16,20 @@ async def cmd_export_rules(db: Database, tg_client: TelegramClient):
         ["recip_name", "recip_id", "donor_name", "donor_id",
          "sender_fname", "sender_sname", "sender_uname", "sender_id",
          "filter", "black_list", "and_list", "or_list", "format", "title", "status",
-         "user_id"]
+         "user_id", "uid"]
     ]
     for rule in rules:
         row = [
             rule.recip_name, rule.recip_id, rule.donor_name, rule.donor_id,
             rule.sender_fname, rule.sender_lname, rule.sender_uname, rule.sender_id,
             rule.filter, rule.black_list, rule.and_list, rule.or_list,
-            rule.format, rule.title, rule.status, rule.user_id
+            rule.format, rule.title, rule.status, rule.user_id, rule.uid
         ]
         if not trash_bin_found and rule.title == '__trash_bin__':
             trash_bin_found = True
         rows.append(row)
     if not trash_bin_found:
-        rows.append(['', 0, '', 0, '', '', '', 0, '', '', '', '', '', '__trash_bin__', '', Config.owner_id])
+        rows.append(['', 0, '', 0, '', '', '', 0, '', '', '', '', '', '__trash_bin__', '', Config.owner_id, len(rules)+1])
     rows.append([
         "Insert filter definitions before this row"
     ])
@@ -60,12 +60,12 @@ async def cmd_import_rules(db: Database, tg_client: TelegramClient, document: Do
 
     new_rules_count = 0
     for row in csv_data:
-        if len(row) != 16:
+        if len(row) != 17:
             continue
 
         data = {}
         recip_name, recip_id, donor_name, donor_id, sender_fname, sender_lname, sender_uname, \
-            sender_id, rule_filter, black_list, and_list, or_list, rule_format, title, status, user_id = row
+            sender_id, rule_filter, black_list, and_list, or_list, rule_format, title, status, user_id, uid = row
 
         if recip_name != '__trash_bin__':
             if recip_id == '' or donor_id == '':

@@ -272,7 +272,8 @@ class ImageTable(BaseTable):
 
 class RulesTable(BaseTable):
     __slots__ = ("recip_name", "recip_id", "donor_name", "donor_id", "sender_fname", "sender_lname", "sender_uname",
-                 "sender_id", "filter", "black_list", "and_list", "or_list", "format", "title", "status", "user_id")
+                 "sender_id", "filter", "black_list", "and_list", "or_list", "format", "title", "status", "user_id",
+                 "uid")
 
     def __init__(self, connection: Connection, cursor: Cursor):
         super().__init__(table_name="rules", connection=connection, cursor=cursor)
@@ -294,6 +295,7 @@ class RulesTable(BaseTable):
         self.title: str = ''
         self.status: str = ""       # set to 'active' to activate the rule!
         self.user_id: int = 0
+        self.uid: int = 'autoincrement'
 
     @staticmethod
     def serialize(rule) -> str:
@@ -325,7 +327,8 @@ class RulesTable(BaseTable):
                              f"{self.__slots__[12]} TEXT," \
                              f"{self.__slots__[13]} TEXT," \
                              f"{self.__slots__[14]} TEXT," \
-                             f"{self.__slots__[15]} INT)"
+                             f"{self.__slots__[15]} INT," \
+                             f"{self.__slots__[16]} INTEGER PRIMARY KEY AUTOINCREMENT)"
         try:
             with self.connection:
                 self.cursor.execute(create_table_query)
