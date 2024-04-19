@@ -356,6 +356,12 @@ class RulesTable(BaseTable):
             print("get_users error:", er)
         return rules
 
+    async def update_rule(self, uid: int, data: dict[str, Any]):
+        try:
+            await self.update(data, where={"uid": uid})
+        except sqlite3.Error as er:
+            print("update_rule error:", er)
+
     async def delete_all_rules(self):
         with self.connection:
             self.cursor.execute(f"DELETE FROM {self.__table_name__};")
