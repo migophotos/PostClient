@@ -9,7 +9,7 @@ import re
 
 from database.rules_io import cmd_export_rules, cmd_import_rules
 from shared.config import Config
-from database.orm_sqlite3 import Database, RulesTable
+from database.orm_sqlite3 import Database, RulesTable, BleepTable
 from shared.filter_by_parameters import check_filter, flt
 
 
@@ -24,8 +24,9 @@ db = Database(db_file=Config.database)
 current_state: dict[str, Any] = {}
 
 rules_list = []
+bleep_list = []
 recip_list = []
-trash_bin = {"name": '', 'id': 0, "status": ''}
+trash_bin = {"name": '', 'id': 0, "status": '', "uid": 0}
 
 msg_queue = asyncio.Queue()
 
@@ -52,12 +53,38 @@ class EventState:
         return self.reason
 
 
+async def reload_bleeps():
+    bleep_list.clear()
+    rules = await db.get_bleep_table().get_rules()
+    if len(rules) == 0:
+        await tg_client.send_message(Config.app_channel_id,
+                                     "Bleep Rules not found. Fill the CSV file and upload it using command <import>")
+        return False
+    for rule in rules:
+        bleep_list.append(rule)
+    await tg_client.send_message(Config.app_channel_id, f"**{len(bleep_list)} bleeping rules loaded:**\n\n")
+    rules_text = ''
+    for index, rule in enumerate(bleep_list):
+        if (index + 1) % 5:
+            rules_text += f'**{index + 1}**. {BleepTable.serialize(rule)}\n\n'
+        else:
+            rules_text += f'**{index + 1}**. {BleepTable.serialize(rule)}\n\n'
+            # print each 10 rules
+            await tg_client.send_message(Config.app_channel_id, rules_text)
+            rules_text = ''
+
+    if len(rules_text):
+        # print last group of rules
+        await tg_client.send_message(Config.app_channel_id, rules_text)
+    return len(bleep_list)
+
+
 async def reload_filters():
     rules_list.clear()
     rules = await db.get_rules_table().get_rules()
     if len(rules) == 0:
         await tg_client.send_message(Config.app_channel_id,
-                                     "Rules not found. Fill the CSV file and upload it to my bot!\n\n"
+                                     "Rules not found. Fill the CSV file and upload it using command <import>\n\n"
                                      "I'm ready to work.")
         return False
 
@@ -69,6 +96,7 @@ async def reload_filters():
             trash_bin["name"] = rule.recip_name
             trash_bin["id"] = rule.recip_id
             trash_bin["status"] = rule.status
+            trash_bin["uid"] = rule.uid
             continue
 
         rules_list.append(rule)
@@ -100,6 +128,7 @@ async def reload_filters():
 async def main():
     await db.create_tables()
 
+    await reload_bleeps()
     await reload_filters()
 
     # start the consumer
@@ -220,6 +249,7 @@ async def normal_handler(event):
         if text == 'trash':
             if trash_bin['id']:
                 trash_bin['status'] = 'active'
+                await db.get_rules_table().update_rule(trash_bin["uid"], {"status": trash_bin['status']})
                 await tg_client.send_message(Config.app_channel_id, f"{trash_bin['name']} enabled")
             else:
                 await tg_client.send_message(Config.app_channel_id,
@@ -235,6 +265,7 @@ async def normal_handler(event):
         if text == 'notrash':
             if trash_bin['id']:
                 trash_bin['status'] = ''
+                await db.get_rules_table().update_rule(trash_bin["uid"], {"status": trash_bin['status']})
                 await tg_client.send_message(Config.app_channel_id, f"{trash_bin['name']} disabled")
             else:
                 await tg_client.send_message(Config.app_channel_id, f"Trash Bin not initialized! Use command 'trash' "
@@ -296,18 +327,20 @@ async def normal_handler(event):
                                        or event.message.document.mime_type == 'text/csv'):
             if current_state.get("wait_for_rules_csv"):
                 doc = event.message.document
-                await cmd_import_rules(db, tg_client, doc)
-                await reload_filters()
-                current_state["wait_for_rules_csv"] = False
-                return True
+                if await cmd_import_rules(db, tg_client, doc):
+                    await reload_bleeps()
+                    await reload_filters()
+                    current_state["wait_for_rules_csv"] = False
+                    return True
             else:
                 await tg_client.send_message(Config.app_channel_id, "Unwanted operation detected. "
                                                                     "If you want to send me a CSV file with new rules, "
                                                                     "then you must use the command: import")
-                return False
+            return False
 
         if event.message.text == 'reload':
             # in any case reload filters from database
+            await reload_bleeps()
             return await reload_filters()
 
         return False
@@ -316,12 +349,53 @@ async def normal_handler(event):
     # measure_time(event.message.peer_id.channel_id, event.message.id)
 
     # If a message arrives sent to one of the recipients' channels, then such a message should not be processed
-    if event.chat_id in recip_list:
+    # exclude the case that this channel appears in bleep list as donor channel
+    is_bleep_rule = False
+    for bleep_rule in bleep_list:
+        if bleep_rule.donor_id == event.chat_id:
+            is_bleep_rule = True
+
+    if not is_bleep_rule and event.chat_id in recip_list:
         return False
 
     # # all the main work of checking messages happens in the function consumer
     # await msg_queue.put(EventState(event))
+    await process_bleep(event)
     await process_msg(EventState(event))
+
+
+async def process_bleep(event):
+    for bleep_rule in bleep_list:
+        if bleep_rule.donor_id == event.chat_id:
+            # check each word in event.message.text for words in black list
+            need_editing_message = False
+            word_list = re.sub(r'[^\w\s]', '', event.message.text).lower().split()
+            for word in word_list:
+                if check_filter(word, bleep_rule.black_list):
+                    bleep = f'{len(word) * bleep_rule.bleep_symbol}'
+                    # replace 'word' on '****'
+                    event.message.text = event.message.text.replace(word, bleep)
+                    # replace 'Word' on '****'
+                    event.message.text = event.message.text.replace(word.capitalize(), bleep)
+                    # replace 'WORD' on '****'
+                    event.message.text = event.message.text.replace(word.upper(), bleep)
+                    need_editing_message = True
+
+            if need_editing_message:
+                if event.is_group:
+                    orig_mode = tg_client.parse_mode
+                    tg_client.parse_mode = 'html'
+                    await tg_client.delete_messages(event.chat_id, event.message.id)
+                    # non-personalized output
+                    # new_message = f'User {event.message.sender.first_name or ""} {event.message.sender.last_name or ""} ' \
+                    #               f'{"@" + event.message.sender.username or ""}\n' \
+                    #               f'sent message:\n' \
+                    #               f'{event.message.text}'
+                    # event.message.text = new_message
+                    await tg_client.send_message(event.chat_id, event.message, parse_mode='html')
+                    tg_client.parse_mode = orig_mode
+                elif event.is_channel and event.chat.admin_rights.edit_messages:
+                    await tg_client.edit_message(event.chat_id, event.message.id, event.message.text, parse_mode='html')
 
 
 async def process_msg(event_state: EventState):

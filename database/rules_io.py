@@ -54,66 +54,102 @@ async def cmd_import_rules(db: Database, tg_client: TelegramClient, document: Do
     cat_list = re.findall(r'.*\n', cat_list_csv)
     cat_list.pop(0)
     csv_data = csv.reader(cat_list)
+    # in case of empty file this var remains False, in another case it will equal count of columns in raw
+    is_known_csv = False
 
-    rt = db.get_rules_table()
-    await rt.delete_all_rules()
+    for first_row in csv_data:
+        is_known_csv = len(first_row)
+        break
 
-    new_rules_count = 0
-    for row in csv_data:
-        if len(row) != 17:
-            continue
+    if not is_known_csv:
+        return False
 
-        data = {}
-        recip_name, recip_id, donor_name, donor_id, sender_fname, sender_lname, sender_uname, \
-            sender_id, rule_filter, black_list, and_list, or_list, rule_format, title, status, user_id, uid = row
+    if is_known_csv == 7:   # BleepTable data
+        bt = db.get_bleep_table()
+        await bt.delete_all_rules()
 
-        if recip_name != '__trash_bin__':
-            if recip_id == '' or donor_id == '':
-                await tg_client.send_message(Config.app_channel_id,
-                                             f'Recipient ID {recip_id} or Donor ID {donor_id} cannot be empty! Skipped')
-                continue
+        new_rules_count = 0
+        csv_data = csv.reader(cat_list)
+        for row in csv_data:
+            data = {}
+            donor_name, donor_id, black_list, status, bleep_symbol, bleep_action, action_format = row
 
-            # Very Important check: the recipient channel link must not be the same as the donor channel link,
-            # excluding link to special channel, which can only be created by system administrator!
-            if recip_id == donor_id:
-                await tg_client.send_message(Config.app_channel_id,
-                    f'Skipped rule: {recip_id} == {donor_id} - matching input and output channels are prohibited!')
-                continue
+            if donor_id.startswith('100'):
+                donor_id = int(f'-{donor_id}') if not donor_id.startswith('-') else int(donor_id)
+            else:
+                donor_id = int(donor_id) if donor_id else 0
 
-        # check and convert str to int
-        if recip_id.startswith('100'):
-            recip_id = int(f'-{recip_id}') if not recip_id.startswith('-') else int(recip_id)
-        else:
-            recip_id = int(recip_id)
+            data["donor_name"] = donor_name
+            data["donor_id"] = donor_id
+            data["black_list"] = black_list
+            data["status"] = status
+            data["bleep_symbol"] = bleep_symbol
+            data["bleep_action"] = bleep_action
+            data["action_format"] = action_format
 
-        if donor_id.startswith('100'):
-            donor_id = int(f'-{donor_id}') if not donor_id.startswith('-') else int(donor_id)
-        else:
-            donor_id = int(donor_id) if donor_id else 0
+            await bt.add_rule(data)
+            new_rules_count += 1
 
-        sender_id = int(sender_id) if sender_id.isdigit() else 0
-        user_id = int(user_id) if user_id.isdigit() else 0
+        await tg_client.send_message(Config.app_channel_id,
+                                     f'{new_rules_count} bleep rules was found and stored in database\n')
+    elif is_known_csv == 17:    # RulesTable data
+        rt = db.get_rules_table()
+        await rt.delete_all_rules()
 
-        data["recip_name"] = recip_name
-        data["recip_id"] = recip_id
-        data["donor_name"] = donor_name
-        data["donor_id"] = donor_id
-        data["sender_fname"] = sender_fname
-        data["sender_lname"] = sender_lname
-        data["sender_uname"] = sender_uname
-        data["sender_id"] = sender_id
-        data["filter"] = rule_filter
-        data["black_list"] = black_list
-        data["and_list"] = and_list
-        data["or_list"] = or_list
-        data["format"] = rule_format or 'M'
-        data["title"] = title
-        data["status"] = status
-        data["user_id"] = user_id
+        new_rules_count = 0
+        csv_data = csv.reader(cat_list)
+        for row in csv_data:
+            data = {}
+            recip_name, recip_id, donor_name, donor_id, sender_fname, sender_lname, sender_uname, \
+                sender_id, rule_filter, black_list, and_list, or_list, rule_format, title, status, user_id, uid = row
 
-        await rt.add_rule(data)
-        new_rules_count += 1
+            if recip_name != '__trash_bin__':
+                if recip_id == '' or donor_id == '':
+                    await tg_client.send_message(Config.app_channel_id,
+                                                 f'Recipient ID {recip_id} or Donor ID {donor_id} cannot be empty! Skipped')
+                    continue
 
-    await tg_client.send_message(Config.app_channel_id, f'{new_rules_count} rules was found and stored in database\n')
+                # Very Important check: the recipient channel link must not be the same as the donor channel link,
+                # excluding link to special channel, which can only be created by system administrator!
+                if recip_id == donor_id:
+                    await tg_client.send_message(Config.app_channel_id,
+                        f'Skipped rule: {recip_id} == {donor_id} - matching input and output channels are prohibited!')
+                    continue
+
+            # check and convert str to int
+            if recip_id.startswith('100'):
+                recip_id = int(f'-{recip_id}') if not recip_id.startswith('-') else int(recip_id)
+            else:
+                recip_id = int(recip_id)
+
+            if donor_id.startswith('100'):
+                donor_id = int(f'-{donor_id}') if not donor_id.startswith('-') else int(donor_id)
+            else:
+                donor_id = int(donor_id) if donor_id else 0
+
+            sender_id = int(sender_id) if sender_id.isdigit() else 0
+            user_id = int(user_id) if user_id.isdigit() else 0
+
+            data["recip_name"] = recip_name
+            data["recip_id"] = recip_id
+            data["donor_name"] = donor_name
+            data["donor_id"] = donor_id
+            data["sender_fname"] = sender_fname
+            data["sender_lname"] = sender_lname
+            data["sender_uname"] = sender_uname
+            data["sender_id"] = sender_id
+            data["filter"] = rule_filter
+            data["black_list"] = black_list
+            data["and_list"] = and_list
+            data["or_list"] = or_list
+            data["format"] = rule_format or 'M'
+            data["title"] = title
+            data["status"] = status
+            data["user_id"] = user_id
+
+            await rt.add_rule(data)
+            new_rules_count += 1
+
+        await tg_client.send_message(Config.app_channel_id, f'{new_rules_count} rules was found and stored in database\n')
     return True
 

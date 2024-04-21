@@ -34,6 +34,14 @@ class BaseTable(object, metaclass=ABCMeta):
     async def create_table(self):
         ...
 
+    async def create(self, query):
+        try:
+            with self.connection:
+                self.cursor.execute(query)
+                self.connection.commit()
+        except sqlite3.Error as er:
+            raise er
+
     async def add(self, data):
         query_str, values_arr = self.build_insert_query(data)
         try:
@@ -245,12 +253,7 @@ class ImageTable(BaseTable):
         create_table_query = f"CREATE TABLE IF NOT EXISTS {self.__table_name__}(" \
                              f"{self.__slots__[0]} TEXT," \
                              f"{self.__slots__[1]} TEXT)"
-        try:
-            with self.connection:
-                self.cursor.execute(create_table_query)
-                self.connection.commit()
-        except sqlite3.Error as er:
-            print("Failed to create table: 'image'", er)
+        await self.create(create_table_query)
 
     async def add_image(self, data: dict[str, str]):
         try:
@@ -329,12 +332,7 @@ class RulesTable(BaseTable):
                              f"{self.__slots__[14]} TEXT," \
                              f"{self.__slots__[15]} INT," \
                              f"{self.__slots__[16]} INTEGER PRIMARY KEY AUTOINCREMENT)"
-        try:
-            with self.connection:
-                self.cursor.execute(create_table_query)
-                self.connection.commit()
-        except sqlite3.Error as er:
-            print(f"Failed to create table: '{self.__table_name__}'", er)
+        await self.create(create_table_query)
 
     async def add_rule(self, data: dict[str, Any]):
         try:
@@ -353,7 +351,7 @@ class RulesTable(BaseTable):
                     obj = self.convert_to_model_obj(row)
                     rules.append(obj)
         except sqlite3.Error as er:
-            print("get_users error:", er)
+            print("get_rules error:", er)
         return rules
 
     async def update_rule(self, uid: int, data: dict[str, Any]):
@@ -368,6 +366,73 @@ class RulesTable(BaseTable):
             self.connection.commit()
 
 
+class BleepTable(BaseTable):
+    __slots__ = ("donor_name", "donor_id", "black_list", "status", "bleep_symbol", "bleep_actions", "action_format", "uid")
+
+    def __init__(self, connection: Connection, cursor: Cursor):
+        super().__init__(table_name="bleeping_rules", connection=connection, cursor=cursor)
+        self.donor_name: str = ''
+        self.donor_id: int = 0
+        self.black_list: str = ''
+        self.status: str = ''
+        self.bleep_symbol: str = ''
+        self.bleep_actions: str = ''
+        self.action_format: str = ''
+        self.uid: int = 'autoincrement'
+
+    @staticmethod
+    def serialize(rule) -> str:
+        return f"Bleeping\n" \
+               f"Donor: '{rule.donor_name}' id: {rule.donor_id}\n" \
+               f"Symbol: {rule.bleep_symbol}\n" \
+               f"Actions: {rule.bleep_actions}\n" \
+               f"Black list: {rule.black_list}\n" \
+               f"**Status: {rule.status}**"
+
+    async def create_table(self):
+        create_table_query = f"CREATE TABLE IF NOT EXISTS {self.__table_name__}(" \
+                             f"{self.__slots__[0]} TEXT," \
+                             f"{self.__slots__[1]} INT," \
+                             f"{self.__slots__[2]} TEXT," \
+                             f"{self.__slots__[3]} TEXT," \
+                             f"{self.__slots__[4]} TEXT," \
+                             f"{self.__slots__[5]} TEXT," \
+                             f"{self.__slots__[6]} TEXT," \
+                             f"{self.__slots__[7]} INTEGER PRIMARY KEY AUTOINCREMENT)"
+        await self.create(create_table_query)
+
+    async def add_rule(self, data: dict[str, Any]):
+        try:
+            await self.add(data)
+        except sqlite3.Error as er:
+            print("add_bleeping_rule error:", er)
+
+    async def get_rules(self, where: dict[str, Any] or None = None,
+                        order_by: str or list[str] or None = None) -> list[Any]:
+        rules = []
+        query_str, values = self.build_select_query(where=where, order_by=order_by)
+        try:
+            with self.connection:
+                rows = self.cursor.execute(query_str, values).fetchall()
+                for row in rows:
+                    obj = self.convert_to_model_obj(row)
+                    rules.append(obj)
+        except sqlite3.Error as er:
+            print("get_bleeping_rules error:", er)
+        return rules
+
+    async def update_rule(self, uid: int, data: dict[str, Any]):
+        try:
+            await self.update(data, where={"uid": uid})
+        except sqlite3.Error as er:
+            print("update_bleeping_rule error:", er)
+
+    async def delete_all_rules(self):
+        with self.connection:
+            self.cursor.execute(f"DELETE FROM {self.__table_name__};")
+            self.connection.commit()
+
+
 class Database:
     def __init__(self, *, db_file: str = ''):
         self.connection = sqlite3.connect(db_file if len(db_file) else ":memory:")
@@ -375,6 +440,7 @@ class Database:
 
         self.image_table: ImageTable = ImageTable(connection=self.connection, cursor=self.cursor)
         self.rules_table: RulesTable = RulesTable(connection=self.connection, cursor=self.cursor)
+        self.bleep_table: BleepTable = BleepTable(connection=self.connection, cursor=self.cursor)
 
     async def disconnect(self):
         self.cursor.close()
@@ -386,9 +452,13 @@ class Database:
     def get_rules_table(self) -> RulesTable:
         return self.rules_table
 
+    def get_bleep_table(self) -> BleepTable:
+        return self.bleep_table
+
     async def create_tables(self):
         await self.image_table.create_table()
         await self.rules_table.create_table()
+        await self.bleep_table.create_table()
 
 
 async def start():
