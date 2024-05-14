@@ -367,7 +367,8 @@ class RulesTable(BaseTable):
 
 
 class BleepTable(BaseTable):
-    __slots__ = ("donor_name", "donor_id", "black_list", "status", "bleep_symbol", "bleep_actions", "action_format", "uid")
+    __slots__ = ("donor_name", "donor_id", "black_list", "status", "bleep_symbol", "bleep_actions",
+                 "action_format", "uid")
 
     def __init__(self, connection: Connection, cursor: Cursor):
         super().__init__(table_name="bleeping_rules", connection=connection, cursor=cursor)

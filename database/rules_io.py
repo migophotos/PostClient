@@ -10,6 +10,11 @@ from shared.config import Config
 
 
 async def cmd_export_rules(db: Database, tg_client: TelegramClient):
+    await cmd_export_dialogs_rules(db, tg_client)
+    await cmd_export_bleep_rules(db, tg_client)
+
+
+async def cmd_export_dialogs_rules(db: Database, tg_client: TelegramClient):
     rules = await db.get_rules_table().get_rules()
     trash_bin_found = False
     rows = [
@@ -39,11 +44,37 @@ async def cmd_export_rules(db: Database, tg_client: TelegramClient):
             writer = csv.writer(csv_file)
             writer.writerows(rows)
 
-        await tg_client.send_file(Config.app_channel_id, rules_csv_file, caption="Rules for Google Sheet")
+        await tg_client.send_file(Config.app_channel_id, rules_csv_file, caption="Dialogs Rules definitions for Google Sheet")
 
     except Exception as e:
         await tg_client.send_message(Config.app_channel_id,
                                      f"Error: {str(e)}\nContact the author: @MigoPhotos")
+
+
+async def cmd_export_bleep_rules(db: Database, tg_client: TelegramClient):
+    rules = await db.get_bleep_table().get_rules()
+    rows = [
+        ["donor_name", "donor_id", "black_list", "status", "bleep_symbol", "bleep_actions", "action_format"]
+    ]
+    for rule in rules:
+        row = [
+            rule.donor_name, rule.donor_id, rule.black_list, rule.status,
+            rule.bleep_symbol, rule.bleep_actions, rule.action_format
+        ]
+        rows.append(row)
+    rows.append([
+        "Insert filter definitions before this row"
+    ])
+    try:
+        rules_csv_file = "./bleeps.csv"
+        with open(rules_csv_file, "w", encoding="utf8", newline="\n") as csv_file:
+            writer = csv.writer(csv_file)
+            writer.writerows(rows)
+
+        await tg_client.send_file(Config.app_channel_id, rules_csv_file, caption="Bleeps Rules definitions for Google Sheet")
+
+    except Exception as e:
+        await tg_client.send_message(Config.app_channel_id, f"Error: {str(e)}\nContact the author: @MigoPhotos")
 
 
 async def cmd_import_rules(db: Database, tg_client: TelegramClient, document: Document):
